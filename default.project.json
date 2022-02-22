@@ -1,0 +1,41 @@
+{
+  "name": "Set name in project.json",
+  "tree": {
+    "$className": "DataModel",
+
+    "ReplicatedStorage": {
+      "$className": "ReplicatedStorage",
+      "SharedModules": {
+        "$path": "src/Shared"
+      }
+    },
+
+    "ReplicatedFirst": {
+      "$className": "ReplicatedFirst",
+      "ClientLoader": {
+        "$path": "src/ClientLoader.client.lua"
+      }
+    },
+
+    "ServerScriptService": {
+      "$className": "ServerScriptService",
+      "ServerModules": {
+        "$path": "src/Server"
+      },
+      "ServerLoader": {
+        "$path": "src/ServerLoader.server.lua"
+      }
+    },
+
+    "StarterPlayer": {
+      "$className": "StarterPlayer",
+      "StarterPlayerScripts": {
+        "$className": "StarterPlayerScripts",
+        "ClientModules": {
+          "$path": "src/Client"
+        }
+        
+      }
+    }
+  }
+}
