@@ -1,0 +1,187 @@
+-- Stratiz 2022
+-- Updated: 05/10/2022
+local UserInputService = game:GetService("UserInputService")
+local RunService = game:GetService("RunService")
+
+local Maid = _G.require("Maid")
+local Signal = _G.require("Signal")
+
+local InputController = {}
+
+InputController.CurrentInputType = nil --// "Keyboard" or "Touch" or "Controller"
+InputController.InputTypeChangedSignal = Signal.new()
+
+InputController.Inputs = {}
+
+local CurrentGamepadEnum = Enum.UserInputType.Gamepad1
+function InputController:Init()
+
+    local function InputTypeChanged(NewType)
+        InputController.CurrentInputType = NewType
+        InputController.InputTypeChangedSignal:Fire(NewType)
+    end
+
+    --// Functions for checking if input is bound and activating their binds
+    local function CheckAndActivate(InputObject,...)
+        for MapName,MapData in pairs(self.Inputs) do
+            if MapData.Active then
+                for _,MappedInput in ipairs(MapData.Binds) do
+                    if table.find(MappedInput.Config.Enums,InputObject.KeyCode) or table.find(MappedInput.Config.Enums,InputObject.UserInputType) then
+                        -- Activate
+                        if MappedInput.Active == false then
+                            MappedInput.Active = true
+                            MappedInput.Changed:Fire(...)
+                        end
+                        MappedInput.Began:Fire(...)
+                    end
+                end
+            end
+        end
+    end
+    local function CheckAndDeactivate(InputObject,...)
+        for MapName,MapData in pairs(self.Inputs) do
+            if MapData.Active then
+                for _,MappedInput in ipairs(MapData.Binds) do
+                    if table.find(MappedInput.Config.Enums,InputObject.KeyCode) or table.find(MappedInput.Config.Enums,InputObject.UserInputType) then
+                        -- Deactivate
+                        if MappedInput.Active == true then
+                            MappedInput.Active = false
+                            MappedInput.Changed:Fire(...)
+                        end
+                        MappedInput.Ended:Fire(...)
+                    end
+                end
+            end
+        end
+    end
+
+    --// Detect controller change and load states
+    local GamepadStates = {}
+    local function LoadGamepadStates(GamepadEnum)
+        local RawGamepadStates = UserInputService:GetGamepadState(GamepadEnum)
+        GamepadStates = {}
+        for _,State in pairs(RawGamepadStates) do
+            GamepadStates[State.KeyCode] = State
+        end
+        CurrentGamepadEnum = GamepadEnum
+    end
+    LoadGamepadStates(Enum.UserInputType.Gamepad1)
+    UserInputService.GamepadConnected:Connect(LoadGamepadStates)
+    UserInputService.GamepadDisconnected:Connect(function(GamepadEnum)
+        if GamepadEnum == CurrentGamepadEnum then
+            for _,Gamepad in pairs(UserInputService:GetConnectedGamepads()) do
+                LoadGamepadStates(GamepadEnum)
+                break
+            end
+        end
+    end)
+
+    --// Detect controller analog input
+    local ControllerAnalogInputs = {
+        Enum.KeyCode.ButtonR2,
+        Enum.KeyCode.ButtonL2
+    }
+    local ActivatedAnalogInputs = {}
+    RunService:BindToRenderStep("InputController",150,function()
+        if #UserInputService:GetConnectedGamepads() > 0 then
+            for _,InputObject in pairs(GamepadStates) do
+                if table.find(ControllerAnalogInputs,InputObject.KeyCode) then
+                    if InputObject.Position.Z >= 0.5 and not ActivatedAnalogInputs[InputObject.KeyCode] then
+                        ActivatedAnalogInputs[InputObject.KeyCode] = true
+                        CheckAndActivate(InputObject)
+                    elseif InputObject.Position.Z < 0.5 and ActivatedAnalogInputs[InputObject.KeyCode] then
+                        CheckAndDeactivate(InputObject)
+                        ActivatedAnalogInputs[InputObject.KeyCode] = false
+                    end
+                end
+            end
+        end
+    end)
+
+    --// Detect digital Inputs and fire their signals
+    UserInputService.InputBegan:Connect(function(InputObject,GameProcessed)
+        if not GameProcessed and not table.find(ControllerAnalogInputs,InputObject.KeyCode) or InputObject.KeyCode == Enum.KeyCode.ButtonSelect then
+            CheckAndActivate(InputObject)
+        end
+    end)
+    UserInputService.InputEnded:Connect(function(InputObject,GameProcessed)
+        if not GameProcessed and not table.find(ControllerAnalogInputs,InputObject.KeyCode) or InputObject.KeyCode == Enum.KeyCode.ButtonSelect then
+            CheckAndDeactivate(InputObject)
+        end
+    end)
+
+    --// Set CurrentInputType
+    if UserInputService.GamepadEnabled then
+        InputController.CurrentInputType = "Controller"
+    elseif UserInputService.TouchEnabled then
+        InputController.CurrentInputType = "Touch"
+    else
+        InputController.CurrentInputType = "Keyboard"
+    end
+
+    --// Detect CurrentInputType changes from 'MouseMovement'
+    local isLastInputObjectMouseMovement
+    UserInputService.InputChanged:Connect(function(InputObject)
+        if InputObject.UserInputType == Enum.UserInputType.MouseMovement then
+            if isLastInputObjectMouseMovement and InputController.CurrentInputType ~= "Keyboard" then
+                InputTypeChanged("Keyboard")
+            end
+        --// Detect changes from the unique 'MouseWheel'
+        elseif InputObject.UserInputType == Enum.UserInputType.MouseWheel then
+            if InputObject.Position.Z < 0 then
+                -- implement Activate
+            elseif InputObject.Position.Z > 0 then
+                -- implement Activate again
+            end
+        end
+
+        isLastInputObjectMouseMovement = InputObject.UserInputType == Enum.UserInputType.MouseMovement
+    end)
+
+    --// Detect CurrentInputType changes from 'LastInputType'
+    UserInputService.LastInputTypeChanged:Connect(function(LastType)
+        local NewType = InputController:GetInputTypeString(LastType)
+        if NewType and NewType ~= InputController.CurrentInputType then
+            InputTypeChanged(NewType)
+        end
+    end)
+end
+
+function InputController:Bind(Arg1,Arg2)
+    local InputMap = "Default"
+    local Enums = Arg1
+    if Arg2 then
+        Enums = Arg2
+        InputMap = Arg1
+    end
+    
+    if not self.Inputs[InputMap] then
+        self.Inputs[InputMap] = {
+            Active = true,
+            Binds = {}
+        }
+    end
+    local NewInputObject = {
+        Began = Signal.new(),
+        Ended = Signal.new(),
+        Changed = Signal.new(),
+        Active = false,
+        Config = {
+            Enums = Enums
+        }
+    }
+    table.insert(self.Inputs[InputMap].Binds,NewInputObject)
+    return NewInputObject
+end
+
+function InputController:GetInputTypeString(InputEnum)
+    if InputEnum == Enum.UserInputType.Keyboard then
+        return "Keyboard"
+    elseif InputEnum == Enum.UserInputType.Touch then
+        return "Touch"
+    elseif string.match(tostring(InputEnum),"Gamepad") then
+        return "Controller"
+    end
+end
+
+return InputController
