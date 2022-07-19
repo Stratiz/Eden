@@ -4,8 +4,6 @@
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local require = require(ReplicatedStorage.SharedModules:WaitForChild("RequireModule"))
 
-local ModulesToInit = {}
-
-for _,ModuleName in ipairs(ModulesToInit) do
-    require(ModuleName):Init()
-end
+require:InitModules {
+    -- (Optional) Module Paths
+}

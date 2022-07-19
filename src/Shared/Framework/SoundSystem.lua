@@ -16,6 +16,13 @@ end
 ----
 local SoundSystem = {}
 
+function SoundSystem:GetSound(SoundName : string)
+	if Sounds[SoundName] then
+		local NewSound = Sounds[SoundName]:Clone()
+		return NewSound
+	end
+end
+
 function SoundSystem:PlaySound(SoundName,Static)
 	if Sounds[SoundName] then
 		local NewSound = not Static and Sounds[SoundName]:Clone() or Sounds[SoundName]

@@ -14,6 +14,23 @@ InputController.InputTypeChangedSignal = Signal.new()
 InputController.Inputs = {}
 
 local CurrentGamepadEnum = Enum.UserInputType.Gamepad1
+
+local function DeactivateMappedInput(MappedInput,...)
+    if MappedInput.Active == true then
+        MappedInput.Active = false
+        MappedInput.Changed:Fire(...)
+    end
+    MappedInput.Ended:Fire(...)
+end
+
+local function ActivateMappedInput(MappedInput,...)
+    if MappedInput.Active == false then
+        MappedInput.Active = true
+        MappedInput.Changed:Fire(...)
+    end
+    MappedInput.Began:Fire(...)
+end
+
 function InputController:Init()
 
     local function InputTypeChanged(NewType)
@@ -28,11 +45,7 @@ function InputController:Init()
                 for _,MappedInput in ipairs(MapData.Binds) do
                     if table.find(MappedInput.Config.Enums,InputObject.KeyCode) or table.find(MappedInput.Config.Enums,InputObject.UserInputType) then
                         -- Activate
-                        if MappedInput.Active == false then
-                            MappedInput.Active = true
-                            MappedInput.Changed:Fire(...)
-                        end
-                        MappedInput.Began:Fire(...)
+                        ActivateMappedInput(MappedInput,...)
                     end
                 end
             end
@@ -44,11 +57,7 @@ function InputController:Init()
                 for _,MappedInput in ipairs(MapData.Binds) do
                     if table.find(MappedInput.Config.Enums,InputObject.KeyCode) or table.find(MappedInput.Config.Enums,InputObject.UserInputType) then
                         -- Deactivate
-                        if MappedInput.Active == true then
-                            MappedInput.Active = false
-                            MappedInput.Changed:Fire(...)
-                        end
-                        MappedInput.Ended:Fire(...)
+                        DeactivateMappedInput(MappedInput,...)
                     end
                 end
             end
@@ -147,12 +156,10 @@ function InputController:Init()
     end)
 end
 
-function InputController:Bind(Arg1,Arg2)
-    local InputMap = "Default"
-    local Enums = Arg1
-    if Arg2 then
-        Enums = Arg2
-        InputMap = Arg1
+function InputController:Bind(InputMap : string | {}, Enums : {}) : {}
+    if not Enums then
+        Enums = InputMap
+        InputMap = "Default"
     end
     
     if not self.Inputs[InputMap] then
@@ -161,7 +168,8 @@ function InputController:Bind(Arg1,Arg2)
             Binds = {}
         }
     end
-    local NewInputObject = {
+    
+    local NewInputObject = { 
         Began = Signal.new(),
         Ended = Signal.new(),
         Changed = Signal.new(),
@@ -170,8 +178,31 @@ function InputController:Bind(Arg1,Arg2)
             Enums = Enums
         }
     }
+
+    -- Catch button instances
+    for Index, Button in Enums do
+        if typeof(Button) == "Instance" then
+            if Button:IsA("GuiButton") then
+                Button.Activated:Connect(function()
+                    if NewInputObject.Active == false then
+                        ActivateMappedInput(NewInputObject)
+                        task.wait()
+                        DeactivateMappedInput(NewInputObject)
+                    end
+                end)
+            end
+        end
+    end
+    --
+
     table.insert(self.Inputs[InputMap].Binds,NewInputObject)
     return NewInputObject
+end
+
+function InputController:SetMapEnabled(mapName: string, enabled: boolean)
+    if self.Inputs[mapName] then
+        self.Inputs[mapName].Active = enabled
+    end
 end
 
 function InputController:GetInputTypeString(InputEnum)

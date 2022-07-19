@@ -53,4 +53,37 @@ function UtilFunctions:MakeTableFromValuesFolder(Folder : Instance)
     return NewTable
 end
 
+function UtilFunctions:AddCommasToNumber(number: number) : string
+    local NumberString = tostring(number)
+    if #NumberString <= 3 then
+        return NumberString 
+    end
+    local CommaCount = math.floor(#NumberString / 3)
+    
+    local StartIndex = (#NumberString % 3)
+
+    local CommaString = string.sub(NumberString,1,StartIndex)
+    StartIndex += 1
+
+    for i = 1, CommaCount do
+        if i ~= 1 or #CommaString ~= 0 then
+            CommaString = CommaString .. ","
+        end
+        CommaString ..= string.sub(NumberString,StartIndex,StartIndex+2)
+        StartIndex += 2
+    end
+    return CommaString
+
+end
+
+local Suffix = {"","K","M","B","T","q","Q","s"}
+function UtilFunctions:ReadableNumber(num, places)
+    places = places or 1
+    local Zeros = #tostring(math.floor(num)) - 1
+    local Index = math.floor(Zeros/3) + 1
+    local Rounded = (math.floor((num/(10^((Index-1)*3)))*10^places)/10^places)
+
+    return Rounded .. Suffix[Index]
+end
+
 return UtilFunctions
