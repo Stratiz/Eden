@@ -3,8 +3,8 @@
 local UserInputService = game:GetService("UserInputService")
 local RunService = game:GetService("RunService")
 
-local Maid = _G.require("Maid")
-local Signal = _G.require("Signal")
+local Maid = shared("Maid")
+local Signal = shared("Signal")
 
 local InputController = {}
 
@@ -39,25 +39,19 @@ function InputController:Init()
     end
 
     --// Functions for checking if input is bound and activating their binds
-    local function CheckAndActivate(InputObject,...)
+    local function CheckAndTrigger(activate : boolean ,inputObject : InputObject, gameProcessed : boolean?, ...)
         for MapName,MapData in pairs(self.Inputs) do
             if MapData.Active then
                 for _,MappedInput in ipairs(MapData.Binds) do
-                    if table.find(MappedInput.Config.Enums,InputObject.KeyCode) or table.find(MappedInput.Config.Enums,InputObject.UserInputType) then
-                        -- Activate
-                        ActivateMappedInput(MappedInput,...)
-                    end
-                end
-            end
-        end
-    end
-    local function CheckAndDeactivate(InputObject,...)
-        for MapName,MapData in pairs(self.Inputs) do
-            if MapData.Active then
-                for _,MappedInput in ipairs(MapData.Binds) do
-                    if table.find(MappedInput.Config.Enums,InputObject.KeyCode) or table.find(MappedInput.Config.Enums,InputObject.UserInputType) then
-                        -- Deactivate
-                        DeactivateMappedInput(MappedInput,...)
+                    if gameProcessed == nil or MappedInput.Config.GameProcessed == gameProcessed then
+                        if table.find(MappedInput.Config.Enums,inputObject.KeyCode) or table.find(MappedInput.Config.Enums,inputObject.UserInputType) then
+                            -- Activate
+                            if activate == true then
+                                ActivateMappedInput(MappedInput ,...)
+                            else
+                                DeactivateMappedInput(MappedInput,...)
+                            end
+                        end
                     end
                 end
             end
@@ -97,9 +91,9 @@ function InputController:Init()
                 if table.find(ControllerAnalogInputs,InputObject.KeyCode) then
                     if InputObject.Position.Z >= 0.5 and not ActivatedAnalogInputs[InputObject.KeyCode] then
                         ActivatedAnalogInputs[InputObject.KeyCode] = true
-                        CheckAndActivate(InputObject)
+                        CheckAndTrigger(true, InputObject )
                     elseif InputObject.Position.Z < 0.5 and ActivatedAnalogInputs[InputObject.KeyCode] then
-                        CheckAndDeactivate(InputObject)
+                        CheckAndTrigger(false, InputObject)
                         ActivatedAnalogInputs[InputObject.KeyCode] = false
                     end
                 end
@@ -109,13 +103,13 @@ function InputController:Init()
 
     --// Detect digital Inputs and fire their signals
     UserInputService.InputBegan:Connect(function(InputObject,GameProcessed)
-        if not GameProcessed and not table.find(ControllerAnalogInputs,InputObject.KeyCode) or InputObject.KeyCode == Enum.KeyCode.ButtonSelect then
-            CheckAndActivate(InputObject)
+        if not table.find(ControllerAnalogInputs,InputObject.KeyCode) or InputObject.KeyCode == Enum.KeyCode.ButtonSelect then
+            CheckAndTrigger(true, InputObject, GameProcessed)
         end
     end)
     UserInputService.InputEnded:Connect(function(InputObject,GameProcessed)
-        if not GameProcessed and not table.find(ControllerAnalogInputs,InputObject.KeyCode) or InputObject.KeyCode == Enum.KeyCode.ButtonSelect then
-            CheckAndDeactivate(InputObject)
+        if not table.find(ControllerAnalogInputs,InputObject.KeyCode) or InputObject.KeyCode == Enum.KeyCode.ButtonSelect then
+            CheckAndTrigger(false, InputObject, GameProcessed)
         end
     end)
 
@@ -175,7 +169,8 @@ function InputController:Bind(InputMap : string | {}, Enums : {}) : {}
         Changed = Signal.new(),
         Active = false,
         Config = {
-            Enums = Enums
+            Enums = Enums,
+            GameProcessed = false
         }
     }
 

@@ -1,2 +1,2 @@
-# The Happiness Framework
+# The Eden Framework
  2022 Framework

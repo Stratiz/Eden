@@ -6,7 +6,10 @@
     "ReplicatedStorage": {
       "$className": "ReplicatedStorage",
       "SharedModules": {
-        "$path": "src/Shared"
+        "$path": "src/Shared",
+        "RequireModule": {
+          "$path" : "src/RequireModule.lua" 
+        }
       }
     },
 
@@ -34,7 +37,6 @@
         "ClientModules": {
           "$path": "src/Client"
         }
-        
       }
     }
   }

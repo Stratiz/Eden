@@ -1,23 +1,35 @@
--- @Stratiz 2021 :)
 
-local RequireModule = {}
---- local ReplicatedStorage = game:GetService("ReplicatedStorage")
---- local require = require(ReplicatedStorage:WaitForChild("SharedModules"):WaitForChild("RequireModule"))
+--[[
+	RequireModule.lua
+	Stratiz
+	Created on 09/06/2022 @ 21:50
+	
+	Description:
+		Module aggregator for Eden.
+	
+	Documentation:
+		Instead of require(), Eden uses shared("moduleName") this should only be done inside of module scripts.
+		Ideally, your project should only contain module scripts.
 
--- Constants
-local FIND_TIMEOUT = 3
-local LONG_LOAD_TIMEOUT = 4
+		To require modules in script instances, you'll need to directly require the module with the following code:
 
----
+		local ReplicatedStorage = game:GetService("ReplicatedStorage")
+		local require = require(ReplicatedStorage:WaitForChild("SharedModules"):WaitForChild("RequireModule"))
+--]]
+
+--= Root =--
+local RequireModule = { }
+
+--= Roblox Services =--
 local RunService = game:GetService("RunService")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local Players = game:GetService("Players")
--- Aggregate modules
-local Modules = {}
-local ModuleCount = 0
-local InitalizedModules = false
 
-local ModulePaths = {
+--= Constants =--
+local FIND_TIMEOUT = 3
+local LONG_LOAD_TIMEOUT = 4
+local LONG_INIT_TIMEOUT = 10
+local MODULE_PATHS = {
 	-- Core paths
 	RunService:IsClient() and {
 		Alias = "Client",
@@ -34,7 +46,14 @@ local ModulePaths = {
 	
 }
 
+--= Variables =--
+local CurrentlyLoadingTree = {}
+local Modules = {}
+local ModuleCount = 0
+local InitializingModules = false
+local InitalizedModules = false
 
+--= Internal Functions =--
 local function GetModulePathFromAlias(pathData : {}, module : ModuleScript)
 	local CurrentParent = module
 	local OrderedInstanceTable = {}
@@ -61,19 +80,6 @@ local function AddModule(pathData : {}, module : Instance)
 		table.insert(Modules, NewModuleData)
 	end
 end
-
-for _,PathData in ipairs(ModulePaths) do
-	for _,Module in pairs(PathData.Instance:GetDescendants()) do
-		AddModule(PathData,Module)
-	end
-	PathData.Instance.DescendantAdded:Connect(function(Module)
-		if InitalizedModules == true then
-			warn("Module",Module.Name,"replicated late to",PathData.Alias,"module folder. This may cause unexpected behavior.")
-		end
-		AddModule(PathData,Module)
-	end)
-end
-
 
 local function FindCycle(targetModuleObject, _cycleTable)
 	local CycleTable = _cycleTable or {}
@@ -109,8 +115,7 @@ local function FindModule(targetString : string)
 	return Found[1]
 end
 
-local CurrentlyLoadingTree = {}
-local NewRequire = function(query : string | ModuleScript)
+local function NewRequire(query : string | ModuleScript)
 	-- Default require functionality
 	if typeof(query) == "Instance" then
 		return require(query)
@@ -158,7 +163,7 @@ local NewRequire = function(query : string | ModuleScript)
 				warn("Cyclical require detected: ("..CycleString..") \n\nPlease resolve this to prevent unexpected behavior.")
 			end
 		end
-
+		
 		ToReturn = require(TargetModuleData.Instance)
 		if TargetModuleData.State == "LOADING" then
 			TargetModuleData.State = "ACTIVE"
@@ -168,9 +173,15 @@ local NewRequire = function(query : string | ModuleScript)
 	end
 end
 
+--= API Functions =--
+
+function RequireModule:AreModulesInitialized()
+	return InitalizedModules
+end
+
 function RequireModule:InitModules(explictRequires : {}?)
-	if InitalizedModules == false then
-		InitalizedModules = true
+	if InitializingModules == false then
+		InitializingModules = true
 		explictRequires = explictRequires or {}
 		-- Get Init data
 		local LowestPriority = math.huge
@@ -178,24 +189,41 @@ function RequireModule:InitModules(explictRequires : {}?)
 			local Success, RequiredData = pcall(function()
 				return NewRequire(ModuleData.Path)
 			end)
-			
 			if not Success then
 				warn("Module",ModuleData.Path,"failed to auto-load:",RequiredData)
 			end
-			if type(RequiredData) == "table" then
-				local TargetPriority = rawget(RequiredData,"_Priority") or math.huge
-				ModuleData._AutoInitData = {
-					Priority = TargetPriority,
-					Init = rawget(RequiredData,"Init"),
-					RequiredData = RequiredData
-				}
-				if TargetPriority < LowestPriority then
-					LowestPriority = TargetPriority
-				end
-			else
+
+			local function DoDefault()
 				ModuleData._AutoInitData = {
 					Priority = math.huge,
 				}
+			end
+			if type(RequiredData) == "table" and rawget(RequiredData,"_Enabled") ~= false then
+				-- Check white and blacklist
+				local Whitelist = rawget(RequiredData,"_PlaceWhitelist")
+				if not Whitelist or Whitelist and (table.find(Whitelist, game.PlaceId) or #Whitelist == 0) then
+					local Blacklist = rawget(RequiredData,"_PlaceBlacklist")
+					if not Blacklist or Blacklist and not table.find(Blacklist, game.PlaceId) then
+						-- Add to auto execute list
+						local TargetPriority = rawget(RequiredData,"_Priority") or math.huge
+						ModuleData._AutoInitData = {
+							Priority = TargetPriority,
+							Init = rawget(RequiredData,"Init"),
+							RequiredData = RequiredData
+						}
+						if TargetPriority < LowestPriority then
+							LowestPriority = TargetPriority
+						end
+					else
+						print("Module",ModuleData.Path,"is blacklisted in this place.")
+						DoDefault()
+					end
+				else
+					print("Module",ModuleData.Path,"is not whitelisted in this place.")
+					DoDefault()
+				end
+			else
+				DoDefault()
 			end
 		end
 		LowestPriority = LowestPriority > 0 and 0 or LowestPriority
@@ -210,20 +238,48 @@ function RequireModule:InitModules(explictRequires : {}?)
 		table.sort(Modules, function(a, b)
 			return a._AutoInitData.Priority < b._AutoInitData.Priority
 		end)
-		
-		print(explictRequires,Modules)
+
+		local FocusedModuleData = nil
+		local ElapsedTime = 0
+		local TimerConnection = RunService.Heartbeat:Connect(function(deltaTime)
+			if FocusedModuleData and ElapsedTime < LONG_INIT_TIMEOUT then
+				ElapsedTime += deltaTime
+				if ElapsedTime >= LONG_INIT_TIMEOUT then
+					warn("Module",FocusedModuleData.Path,"is taking a long time to complete :Init()")
+				end
+			end
+		end)
+
 		-- Auto initalize modules
 		for _,ModuleData in ipairs(Modules) do
 			if ModuleData._AutoInitData.Init then
+				FocusedModuleData = ModuleData
+				ElapsedTime = 0
 				ModuleData._AutoInitData.Init(ModuleData._AutoInitData.RequiredData)
 				ModuleData._AutoInitData = nil
 			end
 		end
+		TimerConnection:Disconnect()
+		InitalizedModules = true
 	else
 		error("You can only initalize modules once!")
 	end
 end
 
+--= Initializers =--
+for _,PathData in ipairs(MODULE_PATHS) do
+	for _,Module in pairs(PathData.Instance:GetDescendants()) do
+		AddModule(PathData,Module)
+	end
+	PathData.Instance.DescendantAdded:Connect(function(Module)
+		if InitializingModules == true then
+			warn("Module",Module.Name,"replicated late to",PathData.Alias,"module folder. This may cause unexpected behavior.")
+		end
+		AddModule(PathData,Module)
+	end)
+end
+
+-- Bind call metatable
 _G.require = NewRequire
 shared.require = NewRequire
 
