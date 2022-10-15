@@ -300,7 +300,7 @@ function RequireModule:InitModules(explictRequires : { string }?)
 
 				-- Check whitelist
 				local Whitelist = ModuleParams.PlaceWhitelist
-				if Whitelist and not table.find(Whitelist, game.PlaceId) then
+				if Whitelist and #Whitelist > 0 and not table.find(Whitelist, game.PlaceId) then
 					print("Module",ModuleData.Path,"is not whitelisted in this place.")
 					DoDefault()
 					continue
