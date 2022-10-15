@@ -59,7 +59,7 @@ local LONG_LOAD_TIMEOUT = 4
 local LONG_INIT_TIMEOUT = 10
 local MAX_PRIORITY = 2^16
 local SPECIAL_PARAMS = {
-	"Enabled",
+	"Initialize",
 	"Priority",
 	"PlaceBlacklist",
 	"PlaceWhitelist",
@@ -286,7 +286,7 @@ function RequireModule:InitModules(explictRequires : { string }?)
 				DoDefault()
 				continue
 			end
-			
+
 			-- Require module
 			local Success, RequiredData = pcall(function()
 				return NewRequire(ModuleData.Path)
@@ -296,7 +296,7 @@ function RequireModule:InitModules(explictRequires : { string }?)
 			end
 
 			local ModuleParams = GetParamsFromRequiredData(RequiredData)
-			if type(RequiredData) == "table" and ModuleParams.Enabled ~= false then
+			if type(RequiredData) == "table" and ModuleParams.Initialize ~= false then
 
 				-- Check whitelist
 				local Whitelist = ModuleParams.PlaceWhitelist
