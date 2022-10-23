@@ -151,74 +151,75 @@ Enable HTTP requests by going to [Home -> Game Settings -> Security -> Allow HTT
 
 
 ```lua
-
--- This has intentionally sloppy error handling, if it breaks, let it break and report it.
-
+-- This has intentionally sloppy error handling, if it breaks let it break and report it.
 local RawRepoURL = "https://raw.githubusercontent.com/Stratiz/Eden/main/"
 local GitHubApiURL = "https://api.github.com/repos/Stratiz/Eden/contents/"
 
 local HttpService = game:GetService("HttpService")
 
 local function HttpGet(url : string)
-  return HttpService:GetAsync(url)
+	return HttpService:GetAsync(url)
 end
 
 local function MakeFileFromGithub(filename, url)
-  print("Fetching", filename)
-  local DotPosition = string.find(filename, "%.")
-  local TrueFileName = string.sub(filename, 1, DotPosition-1)
-  local FileType = string.sub(filename, DotPosition + 1)
-  local FileContent = HttpGet(url)
-
-  local ScriptInstance
-  if FileType == "server.lua" then
-    ScriptInstance = Instance.new("Script")
-  elseif FileType == "client.lua" then
-    ScriptInstance = Instance.new("LocalScript")
-  elseif FileType == "lua" then
-    ScriptInstance = Instance.new("ModuleScript")
-  end
-
-  ScriptInstance.Name = TrueFileName
-  ScriptInstance.Source = FileContent
-
-  return ScriptInstance
+	print("Fetching", filename)
+	
+	local DotPosition = string.find(filename, "%.")
+	local TrueFileName = string.sub(filename, 1, DotPosition-1) 
+	local FileType = string.sub(filename, DotPosition + 1)
+	local FileContent = HttpGet(url)
+	
+	 
+	local ScriptInstance
+	if FileType == "server.lua" then
+		ScriptInstance = Instance.new("Script")
+	elseif FileType == "client.lua" then
+		ScriptInstance = Instance.new("LocalScript")
+	elseif FileType == "lua" then
+		ScriptInstance = Instance.new("ModuleScript")
+	end
+	
+	ScriptInstance.Name = TrueFileName
+	ScriptInstance.Source = FileContent
+	
+	return ScriptInstance
 end
 
 local function GetGithubFolder(path : string)
-  local NewFolder = Instance.new("Folder")
-  for _, TargetFile in HttpService:JSONDecode(HttpGet(GitHubApiURL..path)) do
-    if TargetFile.type == "dir" then
-      GetGithubFolder(TargetFile.path).Parent = NewFolder
-    elseif TargetFile.type == "file" then
-      MakeFileFromGithub(TargetFile.name, TargetFile.download_url).Parent = NewFolder
-    end
-  end
-
-  return NewFolder
+	local NewFolder = Instance.new("Folder")
+	for _, TargetFile in HttpService:JSONDecode(HttpGet(GitHubApiURL..path)) do
+		if TargetFile.type == "dir" then
+			GetGithubFolder(TargetFile.path).Parent = NewFolder
+		elseif TargetFile.type == "file" then
+			MakeFileFromGithub(TargetFile.name, TargetFile.download_url).Parent = NewFolder
+		end
+	end
+	
+	return NewFolder
 end
 
 local ToParent = {}
-
 local function FindFolder(target, parent)
-  for DirectoryName, DirectoryDat in pairs(target) do
-    if type(DirectoryData) == "table" then
-      local ClassName = DirectoryData["$className"]
-      if ClassName then
-        FindFolder(DirectoryData, parent[ClassName])
-      else
-        local Path = DirectoryData["$path"]
-        if string.match(Path, ".lua") then
-          local DirData = string.split(Path, "/")
-          table.insert(ToParent, {Parent = parent, Instance = MakeFileFromGithub(DirData[#DirData], RawRepoURL..Path)})
-        else
-          local NewFolder = GetGithubFolder(Path)
-          NewFolder.Name = DirectoryName
-          table.insert(ToParent, {Parent = parent, Instance = NewFolder})
-        end
-      end
-    end
-  end
+	for DirectoryName, DirectoryData in pairs(target) do
+		if type(DirectoryData) == "table" then
+			local ClassName = DirectoryData["$className"]
+			if ClassName then
+				FindFolder(DirectoryData, parent[ClassName])
+			else
+				local Path = DirectoryData["$path"]
+				if string.match(Path, ".lua") then
+
+					local DirData = string.split(Path, "/")
+					table.insert(ToParent, {Parent = parent, Instance = MakeFileFromGithub(DirData[#DirData], RawRepoURL..Path)})
+				else
+					local NewFolder = GetGithubFolder(Path)
+					NewFolder.Name = DirectoryName
+					table.insert(ToParent, {Parent = parent, Instance = NewFolder})
+					FindFolder(DirectoryData, NewFolder)
+				end
+			end
+		end
+	end
 end
 
 print("Working...")
@@ -228,13 +229,12 @@ FindFolder(ProjectJson.tree, game)
 
 -- Ensures we only insert instances if everything succeeds
 for _, Data in pairs(ToParent) do
-  if Data.Instance then
-    Data.Instance.Parent = Data.Parent
-  end
+	if Data.Instance then
+		Data.Instance.Parent = Data.Parent
+	end
 end
 
 print("Done!")
-
 ```
 
 </details>
