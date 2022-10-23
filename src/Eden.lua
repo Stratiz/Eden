@@ -57,9 +57,9 @@ type PathData = {
 }
 
 export type Signal = {
-	Connect: <T>(self : T, toExecute : (any) -> ()) -> RBXScriptConnection,
+	Connect: (self : any, toExecute : (any) -> ()) -> RBXScriptConnection,
 	Fire: (any),
-	Wait: <T>(self : T) -> any,
+	Wait: (self : any) -> any,
 }
 
 --= Constants =--
