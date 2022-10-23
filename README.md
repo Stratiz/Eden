@@ -79,7 +79,7 @@ If you want to use Eden inside of a script that is not a module, you have to req
 
 ```lua
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
-local require = require(ReplicatedStorage:WaitForChild("SharedModules"):WaitForChild("RequireModule"))
+local require = require(ReplicatedStorage:WaitForChild("SharedModules"):WaitForChild("Eden"))
 
 require("ModuleName")
 ```

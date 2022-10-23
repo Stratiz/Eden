@@ -1,9 +1,8 @@
-
 --[[
-	RequireModule.lua
+	Eden.lua
 	Stratiz
 	Created on 09/06/2022 @ 21:50
-	Updated on 10/15/2022 @ 01:25
+	Updated on 10/23/2022 @ 01:41
 	
 	Description:
 		Module aggregator for Eden.
@@ -15,10 +14,13 @@
 		To require modules in script instances, you'll need to directly require the module with the following code:
 
 		local ReplicatedStorage = game:GetService("ReplicatedStorage")
-		local require = require(ReplicatedStorage:WaitForChild("SharedModules"):WaitForChild("RequireModule"))
+		local require = require(ReplicatedStorage:WaitForChild("SharedModules"):WaitForChild("Eden"))
 
 		.InitalizedModulesEvent : Signal (See signal type export)
 			Signal that fires when all modules have been initialized.
+
+		:AreModulesInitialized() : boolean
+			Returns whether or not all modules have been initialized. Good for loading screens.
 			
 		:InitModules(explictRequires: {string}?)
 			Fires by default in the ServerLoader and ClientLoader scripts.
@@ -26,7 +28,7 @@
 --]]
 
 --= Root =--
-local RequireModule = { }
+local Eden = { }
 
 --= Roblox Services =--
 local RunService = game:GetService("RunService")
@@ -34,12 +36,19 @@ local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local Players = game:GetService("Players")
 
 --= Types =--
+type ModuleState = "INACTIVE" | "ACTIVE" | "LOADING"
+
 type ModuleData = {
 	Name: string,
 	Instance: ModuleScript,
 	Path: string,
-	State : "INACTIVE" | "ACTIVE" | "LOADING",
-	RequiredBy: { ModuleData }
+	State : ModuleState,
+	RequiredBy: { ModuleData },
+	_AutoInitData: {
+		Priority : number,
+		Init: (self : any?) -> ()?,
+		RequiredData : any?
+	}
 }
 
 type PathData = {
@@ -48,15 +57,16 @@ type PathData = {
 }
 
 export type Signal = {
-	Connect: ((any) -> nil) -> RBXScriptConnection,
+	Connect: <T>(self : T, toExecute : (any) -> ()) -> RBXScriptConnection,
 	Fire: (any),
-	Wait: () -> any,
+	Wait: <T>(self : T) -> any,
 }
+
 --= Constants =--
-local DEBUG = false
+local DEBUG_LEVEL = 0 -- 0 = None, 1 = Uncommon info, 2 = Phase info, 3 = Module timings
 local FIND_TIMEOUT = 3
-local LONG_LOAD_TIMEOUT = 4
-local LONG_INIT_TIMEOUT = 10
+local LONG_LOAD_TIMEOUT = 5
+local LONG_INIT_TIMEOUT = 8
 local MAX_PRIORITY = 2^16
 local SPECIAL_PARAMS = {
 	"Initialize",
@@ -82,7 +92,6 @@ local MODULE_PATHS = {
 }
 
 --= Variables =--
-local CurrentlyLoadingTree = {}
 local Modules : { ModuleData } = {}
 local ModuleCount = 0
 local InitializingModules = false
@@ -91,8 +100,8 @@ local _print = print
 local _warn = warn
 
 --= Internal Functions =--
-local function print(...)
-	if DEBUG then
+local function print(debugLevel : number, ...)
+	if debugLevel <= DEBUG_LEVEL then
 		_print("[EDEN]", ...)
 	end
 end
@@ -105,11 +114,11 @@ end
 local function MakeSignal() : Signal
 	local BindableEvent = Instance.new("BindableEvent")
 	local Signal = {}
-	function Signal:Connect(toExecute : (any)) : RBXScriptConnection
+	function Signal:Connect(toExecute : (any) -> ()) : RBXScriptConnection
 		return BindableEvent.Event:Connect(toExecute)
 	end
 
-	function Signal:Fire(...) : nil
+	function Signal:Fire(... : any)
 		BindableEvent:Fire(...)
 	end
 
@@ -122,24 +131,27 @@ end
 
 -- Gets the path string for a ModuleScript
 local function GetModulePath(pathData : PathData, module : ModuleScript) : string
-	local CurrentParent = module
+	local CurrentParent : Instance = module
 	local OrderedInstanceTable = {}
 	repeat
 		table.insert(OrderedInstanceTable, 1, CurrentParent.Name)
-		CurrentParent = CurrentParent.Parent
+		CurrentParent = CurrentParent.Parent or game
 	until CurrentParent == pathData.Instance or CurrentParent == game
 	return pathData.Alias.."/"..table.concat(OrderedInstanceTable, "/")
 end
 
 -- Adds a module to the Modules table
-local function AddModule(pathData : PathData, module : Instance) : nil
+local function AddModule(pathData : PathData, module : ModuleScript)
 	if module:IsA("ModuleScript") then
 		local NewModuleData = {
 			Instance = module,
 			Name = module.Name,
 			Path = GetModulePath(pathData, module),
-			State = "INACTIVE",
+			State = "INACTIVE" :: ModuleState,
 			RequiredBy = {},
+			_AutoInitData = {
+				Priority = 0
+			}
 		}
 		ModuleCount += 1
 
@@ -148,7 +160,7 @@ local function AddModule(pathData : PathData, module : Instance) : nil
 end
 
 -- Returns a string of the circular dependency tree if one exists.
-local function FindCycle(requirerModuleData : ModuleData, targetModuleData : ModuleData, _cycleString)
+local function FindCycle(requirerModuleData : ModuleData, targetModuleData : ModuleData, _cycleString : string?) : string?
 	local CurrentCycleString = requirerModuleData.Path.." -> "..(_cycleString or targetModuleData.Path)
 	for _, Requirer in requirerModuleData.RequiredBy do
 		if targetModuleData == Requirer then
@@ -185,94 +197,148 @@ local function FindModule(query : string) : ModuleData?
 	return Found[1]
 end
 
--- The main require function that overrides the default require function 
-local function NewRequire(query : string | ModuleScript) : any
+-- The main require function that overrides the default require function
+local function NewRequire(query : string | ModuleScript, _fromInternal : boolean?) : any
 	-- Default require functionality
 	if typeof(query) == "Instance" then
-		return require(query)
+		return require(query :: ModuleScript) --//TC: Luau typechecking doesnt like this because its not an explict path, which is why we wont use !strict
 	end
 
 	local CurrentTimeout = 0
-	local TargetModuleData = FindModule(query)
+	local TargetModuleData = FindModule(query :: string)
 	
 	local CurrentModuleCount = 0
 	while not TargetModuleData and CurrentTimeout < FIND_TIMEOUT do
 		if CurrentModuleCount ~= ModuleCount then
 			CurrentModuleCount = ModuleCount
-			FindModule(query)
+			FindModule(query :: string)
 		end
 		local Delta = task.wait()
 		CurrentTimeout += Delta
 	end
 
 	if not TargetModuleData then
-		error("Module "..query.." not found",3)
+		error("Module "..(query :: string).." not found",3)
 	else
-
-		-- Check for cyclic dependencies
-		if TargetModuleData.State == "LOADING" then
-			local CycleString = FindCycle(CurrentlyLoadingTree[#CurrentlyLoadingTree], TargetModuleData)
-			if CycleString then
-				warn("Cyclical require detected: ("..CycleString.."). Required module will return nil.")
-				return nil -- Return nil instead of infinite hanging
-			end
-		end
+		local FirstRequire = false
 
 		-- Check if module is already loaded
 		if TargetModuleData.State == "INACTIVE" then
 			TargetModuleData.State = "LOADING"
-			if CurrentlyLoadingTree[1] then
-				table.insert(TargetModuleData.RequiredBy, CurrentlyLoadingTree[#CurrentlyLoadingTree])
-			end
-			table.insert(CurrentlyLoadingTree, TargetModuleData)
+			FirstRequire = true
 		end
 
 		-- Start loading timer
+		local CurrentThread = coroutine.running()
+		local TimeStart = tick()
 		task.spawn(function()
-			local TimeStart = tick()
 			while TargetModuleData.State == "LOADING" do
 				task.wait()
 				if tick() - TimeStart > LONG_LOAD_TIMEOUT then
-					warn("Module",query,"is taking a long time to load.")
+					-- Disabling Luau optimizations for the requiring module to check for cyclical dependencies.
+					if _fromInternal ~= true then
+						local RequirerEnv = getfenv(0)
+						local Requirer = nil
+						for _, ModuleData in Modules do
+							if ModuleData.Instance == RequirerEnv.script then
+								Requirer = ModuleData
+								break
+							end
+						end
+						if Requirer then
+							table.insert(TargetModuleData.RequiredBy, Requirer)
+							local CycleString = FindCycle(Requirer, TargetModuleData)
+							if CycleString then
+								warn("Cyclical require detected: ("..CycleString..").\nPlease resolve this issue at",string.gsub(debug.traceback(CurrentThread,"",3),"\n",""))
+								return
+							end
+						end
+					end
+					
+					-- Displaying warning only once by checking if its the first require
+					if FirstRequire then
+						warn("Module",TargetModuleData.Path,"is taking a long time to load.")
+					end
 					break
 				end
 			end
 		end)
 		
 		-- Require module and return
-		local ToReturn = require(TargetModuleData.Instance)
+		local ToReturn = require(TargetModuleData.Instance) --//TC: Same typechecking issue as above
 		if TargetModuleData.State == "LOADING" then
+			print(3, TargetModuleData.Path, "Took",string.format("%.4f", tick()-TimeStart),"seconds to require.")
 			TargetModuleData.State = "ACTIVE"
-			table.remove(CurrentlyLoadingTree, #CurrentlyLoadingTree)
 		end
 		return ToReturn
 	end
 end
 
 --= API Methods =--
-RequireModule.InitalizedModulesEvent = MakeSignal()
+Eden.InitalizedModulesEvent = MakeSignal()
 
 -- Getter function for InitializedModules boolean
-function RequireModule:AreModulesInitialized() : boolean
+function Eden:AreModulesInitialized() : boolean
 	return InitalizedModules
 end
 
 -- Initializes all modules in the current context
-function RequireModule:InitModules(explictRequires : { string }?)
+function Eden:InitModules(explictRequires : { string }?)
 	if InitializingModules == false then
+		print(2, "Requiring modules...")
+		local Requiring = #Modules
 		InitializingModules = true
 		explictRequires = explictRequires or {}
 		
-		-- Get Init data
-		for _,ModuleData in ipairs(Modules) do
+		local function TryFinalize()
+			Requiring -= 1
+			if Requiring > 0 then
+				return
+			end
+			print(2, "Finished requiring modules, starting init...")
 
-			--Default init data applicator
-			local function DoDefault()
-				ModuleData._AutoInitData = {
-					Priority = 0,
-				}
+			-- Order the explicit requires before init
+			for _,ModuleData in ipairs(Modules) do
+				local TargetIndex = table.find(explictRequires :: {any}, ModuleData.Path)
+				if TargetIndex then
+					ModuleData._AutoInitData.Priority = MAX_PRIORITY + TargetIndex
+				end
 			end
 
+			-- Sort Modules by priority
+			table.sort(Modules, function(a, b)
+				return a._AutoInitData.Priority > b._AutoInitData.Priority
+			end)
+
+			-- Timer for long init times
+			local FocusedModuleData = nil
+			local ElapsedTime = 0
+			local TimerConnection = RunService.Heartbeat:Connect(function(deltaTime)
+				if FocusedModuleData and ElapsedTime < LONG_INIT_TIMEOUT then
+					ElapsedTime += deltaTime
+					if ElapsedTime >= LONG_INIT_TIMEOUT then
+						warn("Module",FocusedModuleData.Path,"is taking a long time to complete :Init()")
+					end
+				end
+			end)
+
+			-- Auto initalize modules
+			for _,ModuleData in ipairs(Modules) do
+				if ModuleData._AutoInitData.Init then
+					FocusedModuleData = ModuleData
+					ElapsedTime = 0
+					ModuleData._AutoInitData.Init(ModuleData._AutoInitData.RequiredData)
+					print(3, ModuleData.Path, "Took",string.format("%.4f", ElapsedTime),"seconds to :Init()")
+				end
+			end
+			TimerConnection:Disconnect()
+			InitalizedModules = true
+			self.InitalizedModulesEvent:Fire()
+			print(2, "Initialization complete!")
+		end
+
+		-- Get Init data
+		for _,ModuleData in ipairs(Modules) do
 			-- Check for static directory
 			local Directories = ModuleData.Path:split("/")
 			local StaticIndex
@@ -283,97 +349,63 @@ function RequireModule:InitModules(explictRequires : { string }?)
 				end
 			end
 			if StaticIndex then
-				DoDefault()
+				TryFinalize()
 				continue
 			end
 
 			-- Require module
-			local Success, RequiredData = pcall(function()
-				return NewRequire(ModuleData.Path)
+			task.defer(function()
+				local Success, RequiredData = pcall(function()
+					return NewRequire(ModuleData.Path, true)
+				end)
+				if not Success then
+					warn("Module",ModuleData.Path,"failed to auto-load:",RequiredData)
+				end
+
+				local ModuleParams = GetParamsFromRequiredData(RequiredData)
+				if type(RequiredData) == "table" and ModuleParams.Initialize ~= false then
+					local Listed = false
+
+					-- Check whitelist
+					local Whitelist = ModuleParams.PlaceWhitelist
+					if Whitelist and #Whitelist > 0 and not table.find(Whitelist, game.PlaceId) then
+						print(1, "Module",ModuleData.Path,"is not whitelisted in this place.")
+						Listed = true
+					end
+
+					-- Check blacklist
+					local Blacklist = ModuleParams.PlaceBlacklist
+					if Blacklist and table.find(Blacklist, game.PlaceId) then
+						print(1, "Module",ModuleData.Path,"is blacklisted in this place.")
+						Listed = true
+					end
+
+					if not Listed then
+						-- Sanity check priority
+						local TargetPriority = ModuleParams.Priority or 0
+						if TargetPriority > MAX_PRIORITY then
+							warn("Module",ModuleData.Path,"has a priority higher than the max priority of",MAX_PRIORITY," and will be clamped. Please lower the _Priority to avoid unintended behavior.")
+							TargetPriority = MAX_PRIORITY
+						end
+
+						ModuleData._AutoInitData = {
+							Priority = TargetPriority,
+							Init = rawget(RequiredData, "Init"),
+							RequiredData = RequiredData
+						}
+					end
+				end
+
+				TryFinalize()
 			end)
-			if not Success then
-				warn("Module",ModuleData.Path,"failed to auto-load:",RequiredData)
-			end
-
-			local ModuleParams = GetParamsFromRequiredData(RequiredData)
-			if type(RequiredData) == "table" and ModuleParams.Initialize ~= false then
-
-				-- Check whitelist
-				local Whitelist = ModuleParams.PlaceWhitelist
-				if Whitelist and #Whitelist > 0 and not table.find(Whitelist, game.PlaceId) then
-					print("Module",ModuleData.Path,"is not whitelisted in this place.")
-					DoDefault()
-					continue
-				end
-
-				-- Check blacklist
-				local Blacklist = ModuleParams.PlaceBlacklist
-				if Blacklist and table.find(Blacklist, game.PlaceId) then
-					print("Module",ModuleData.Path,"is blacklisted in this place.")
-					DoDefault()
-					continue
-				end
-
-				-- Sanity check priority
-				local TargetPriority = ModuleParams.Priority or 0
-				if TargetPriority > MAX_PRIORITY then
-					warn("Module",ModuleData.Path,"has a priority higher than the max priority of",MAX_PRIORITY," and will be clamped. Please lower the _Priority to avoid unintended behavior.")
-					TargetPriority = MAX_PRIORITY
-				end
-
-				ModuleData._AutoInitData = {
-					Priority = TargetPriority,
-					Init = rawget(RequiredData, "Init"),
-					RequiredData = RequiredData
-				}
-			else
-				DoDefault()
-			end
 		end
-
-		-- Order the explicit requires before init
-		for _,ModuleData in ipairs(Modules) do
-			local TargetIndex = table.find(explictRequires, ModuleData.Path)
-			if TargetIndex then
-				ModuleData._AutoInitData.Priority = MAX_PRIORITY + TargetIndex
-			end
-		end
-
-		-- Sort Modules by priority
-		table.sort(Modules, function(a, b)
-			return a._AutoInitData.Priority > b._AutoInitData.Priority
-		end)
-
-		-- Timer for long init times
-		local FocusedModuleData = nil
-		local ElapsedTime = 0
-		local TimerConnection = RunService.Heartbeat:Connect(function(deltaTime)
-			if FocusedModuleData and ElapsedTime < LONG_INIT_TIMEOUT then
-				ElapsedTime += deltaTime
-				if ElapsedTime >= LONG_INIT_TIMEOUT then
-					warn("Module",FocusedModuleData.Path,"is taking a long time to complete :Init()")
-				end
-			end
-		end)
-
-		-- Auto initalize modules
-		for _,ModuleData in ipairs(Modules) do
-			if ModuleData._AutoInitData.Init then
-				FocusedModuleData = ModuleData
-				ElapsedTime = 0
-				ModuleData._AutoInitData.Init(ModuleData._AutoInitData.RequiredData)
-				ModuleData._AutoInitData = nil
-			end
-		end
-		TimerConnection:Disconnect()
-		InitalizedModules = true
-		self.InitalizedModulesEvent:Fire()
 	else
 		error("You can only initalize modules once per context!")
 	end
 end
 
 --= Initializers =--
+print(2, "Aggregating modules...")
 for _,PathData in ipairs(MODULE_PATHS) do
 	PathData.Instance.DescendantAdded:Connect(function(Module)
 		if InitializingModules == true then
@@ -385,6 +417,7 @@ for _,PathData in ipairs(MODULE_PATHS) do
 		AddModule(PathData, Module)
 	end
 end
+print(2, "Aggregated "..(#Modules).." modules!")
 
 -- Bind call metatable
 _G.require = NewRequire -- // Legacy support
@@ -396,6 +429,6 @@ local CallMetaTable = {
 	end
 }
 setmetatable(shared,CallMetaTable)
-setmetatable(RequireModule,CallMetaTable)
+setmetatable(Eden,CallMetaTable)
 
-return RequireModule
+return Eden

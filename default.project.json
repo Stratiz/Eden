@@ -1,5 +1,5 @@
 {
-  "name": "Set name in project.json",
+  "name": "New Eden Project",
   "tree": {
     "$className": "DataModel",
 
@@ -7,8 +7,8 @@
       "$className": "ReplicatedStorage",
       "SharedModules": {
         "$path": "src/Shared",
-        "RequireModule": {
-          "$path" : "src/RequireModule.lua" 
+        "Eden": {
+          "$path" : "src/Eden.lua" 
         }
       }
     },
