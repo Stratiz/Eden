@@ -82,10 +82,10 @@ Specifies whether or not the `:Init()` function is called if present. Suitable f
 A list of `PlaceId`s in which the module will not run its `:Init()` method
 
 
-- **_PlaceBlacklist : { number }** *(Default : {})*
+- **_PlaceWhitelist : { number }** *(Default : {})*
 
 
-A list of `PlaceId`s in which the module will run its`:Init()` method. All other places will not run `:Init()`. An empty list assumes no blacklist.
+A list of `PlaceId`s in which the module will run its`:Init()` method. All other places will not run `:Init()`. An empty list assumes no whitelist.
 
 # Guidelines
 
