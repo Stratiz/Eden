@@ -1,4 +1,7 @@
-# [The Eden Framework](https://github.com/Stratiz/Eden)
+
+<img src="https://github.com/Stratiz/Repository-CDN/blob/main/Eden/EDEN_Banner.png?raw=true" alt="Logo" width="100%">
+
+# [The Eden Framework](https://github.com/Stratiz/Eden) 
 
 Eden is a lightweight & flexible module aggregator framework designed to grow with you. Populate the framework with your own utilities, modules from other frameworks, etc., and Eden will take it with little to no modification.
 
@@ -10,16 +13,16 @@ Eden is designed to be used with Rojo but can easily be implemented without it.
 
 ## Table of Contents
 - [The Eden Framework](#the-eden-framework)
-  - [Table of Contents](#table-of-contents)
+	- [Table of Contents](#table-of-contents)
 - [Features](#features)
 - [Parameters](#parameters)
 - [Guidelines](#guidelines)
 - [Installation](#installation)
-  - [Rojo/GitHub](#rojogithub)
-  - [Studio](#studio)
+	- [Rojo/GitHub](#rojogithub)
+	- [Studio](#studio)
 - [Examples & Usage](#examples--usage)
-  - [For native Studio users](#for-native-studio-users)
-  - [Code](#code)
+	- [For native Studio users](#for-native-studio-users)
+	- [Code](#code)
   
 # Features
 
