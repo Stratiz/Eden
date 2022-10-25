@@ -301,7 +301,7 @@ function Eden:InitModules(explictRequires : { string }?)
 			for _,ModuleData in ipairs(Modules) do
 				local TargetIndex = table.find(explictRequires :: {any}, ModuleData.Path)
 				if TargetIndex then
-					ModuleData._AutoInitData.Priority = MAX_PRIORITY + TargetIndex
+					ModuleData._AutoInitData.Priority = MAX_PRIORITY + ((#explictRequires - TargetIndex) + 1)
 				end
 			end
 
