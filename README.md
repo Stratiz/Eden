@@ -78,18 +78,6 @@ An `int` that specifies the order in which the `:Init()` method is called on gam
 
 Specifies whether or not the `:Init()` function is called if present. Suitable for disabling modules.
 
-
-- **PlaceBlacklist : { number }** *(Default : {})*
-
-
-A list of `PlaceId`s in which the module will not run its `:Init()` method
-
-
-- **PlaceWhitelist : { number }** *(Default : {})*
-
-
-A list of `PlaceId`s in which the module will run its`:Init()` method. All other places will not run `:Init()`. An empty list assumes no whitelist.
-
 # Guidelines
 
 
@@ -291,15 +279,7 @@ local Example = {
   -- All of the following parameters are optional.
   Priority = 0, -- The default priority is 0. The higher the priority, the earlier the module will be loaded. Negative priorities are allowed and will always be loaded last.
 
-  Initialize = true, -- Determines if this modules :Init function will be called. If false, the module will not be initialized. Suitable for disabling modules.
-
-  -- These two are suitable for games that require modules to only run in certain places under a universe
-  PlaceBlacklist = {
-    123, -- The place ID of the place to blacklist.
-  },
-  PlaceWhitelist = {
-    456, -- The place ID of the place to whitelist. If this table is empty, all places will be allowed.
-  }
+  Initialize = true -- Determines if this modules :Init function will be called. If false, the module will not be initialized. Suitable for disabling modules.
 }
 
 --= Dependencies =--

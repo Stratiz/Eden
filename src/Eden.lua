@@ -72,9 +72,7 @@ local MAX_PRIORITY = 2^16
 local PATH_SEPERATOR = "/"
 local SPECIAL_PARAMS = {
 	"Initialize",
-	"Priority",
-	"PlaceBlacklist",
-	"PlaceWhitelist",
+	"Priority"
 }
 local MODULE_PATHS = {
 	-- Core paths
@@ -88,11 +86,11 @@ local MODULE_PATHS = {
 			):WaitForChild("ClientModules")
 	} or {
 		Alias = "Server",
-		Instance =  game:GetService("ServerScriptService"):WaitForChild("ServerModules"),
+		Instance =  game:GetService("ServerScriptService"):WaitForChild("ServerModules")
 	},
 	{
 		Alias = "Shared",
-		Instance = ReplicatedStorage:WaitForChild("SharedModules"),
+		Instance = ReplicatedStorage:WaitForChild("SharedModules")
 	},
 	-- Custom paths
 }
@@ -223,7 +221,7 @@ local function NewRequire(query : string | ModuleScript, _fromInternal : boolean
 	local currentTimeout = 0
 	local targetModuleData = FindModule(query :: string)
 	local currentModuleCount = 0
-	
+
 	while not targetModuleData and currentTimeout < FIND_TIMEOUT do
 		if currentModuleCount ~= ModuleCount then
 			currentModuleCount = ModuleCount
@@ -385,37 +383,18 @@ function Eden:InitModules(explictRequires : { string }?)
 
 				local moduleParams = GetParamsFromRequiredData(requiredData)
 				if type(requiredData) == "table" and moduleParams.Initialize ~= false then
-					-- NOTE: Didnt fix naming here because the feature is slated for deletion in the next commit.
-					local Listed = false
-
-					-- Check whitelist
-					local Whitelist = moduleParams.PlaceWhitelist
-					if Whitelist and #Whitelist > 0 and not table.find(Whitelist, game.PlaceId) then
-						print(1, "Module", moduleData.Path, "is not whitelisted in this place.")
-						Listed = true
+					-- Sanity check priority
+					local targetPriority = moduleParams.Priority or 0
+					if targetPriority > MAX_PRIORITY then
+						warn("Module", moduleData.Path, "has a priority higher than the max priority of", MAX_PRIORITY, " and will be clamped. Please lower the 'Priority' to avoid unintended behavior.")
+						targetPriority = MAX_PRIORITY
 					end
 
-					-- Check blacklist
-					local Blacklist = moduleParams.PlaceBlacklist
-					if Blacklist and table.find(Blacklist, game.PlaceId) then
-						print(1, "Module", moduleData.Path, "is blacklisted in this place.")
-						Listed = true
-					end
-
-					if not Listed then
-						-- Sanity check priority
-						local targetPriority = moduleParams.Priority or 0
-						if targetPriority > MAX_PRIORITY then
-							warn("Module", moduleData.Path, "has a priority higher than the max priority of", MAX_PRIORITY, " and will be clamped. Please lower the 'Priority' to avoid unintended behavior.")
-							targetPriority = MAX_PRIORITY
-						end
-
-						moduleData.AutoInitData = {
-							Priority = targetPriority,
-							Init = rawget(requiredData, "Init"),
-							RequiredData = requiredData
-						}
-					end
+					moduleData.AutoInitData = {
+						Priority = targetPriority,
+						Init = rawget(requiredData, "Init"),
+						RequiredData = requiredData
+					}
 				end
 
 				tryFinalize()
