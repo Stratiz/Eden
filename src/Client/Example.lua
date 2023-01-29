@@ -14,14 +14,14 @@
 --= Root =--
 local Example = {
     -- All of the following paramers are optional.
-    _Priority = 0, -- The default priority is 0. The higher the priority, the earlier the module will be loaded. Negative priorities are allowed and will always be loaded last.
-    _Initialize = true, -- Determines if this modules :Init function will be called. If false, the module will not be initialized. Good for disabling modules.
+    Priority = 0, -- The default priority is 0. The higher the priority, the earlier the module will be loaded. Negative priorities are allowed and will always be loaded last.
+    Initialize = true, -- Determines if this modules :Init function will be called. If false, the module will not be initialized. Good for disabling modules.
 
     -- These two are good for games that require modules to only run in certain places under a universe
-    _PlaceBlacklist = {
+    PlaceBlacklist = {
         123, -- The place ID of the place to blacklist.
     },
-    _PlaceWhitelist = {
+    PlaceWhitelist = {
         456, -- The place ID of the place to whitelist. If this table is empty, all places will be allowed.
     }
 }

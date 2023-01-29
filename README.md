@@ -20,7 +20,7 @@ Eden is designed to be used with Rojo but can easily be implemented without it.
 - [Installation](#installation)
 	- [Rojo/GitHub](#rojogithub)
 	- [Studio](#studio)
-- [Examples & Usage](#examples--usage)
+- [Examples \& Usage](#examples--usage)
 	- [For native Studio users](#for-native-studio-users)
 	- [Code](#code)
   
@@ -38,15 +38,15 @@ Eden is a module aggregator framework, which means it takes all of the modules i
 
 A module require in Eden looks like this: `shared("ModuleName")`
 
-`_G` and `shared` tend to be very controversial within Roblox. In this case, they're used as an alternate `require()` function, so you don't need to require the require module in every module in the game.
+`_G` and `shared` tend to be very controversial within Roblox. In this case, `shared()` is used as an alternate `require()` function, so you don't need to require the require module in every module in the game.
 
-You can also require instances directly with `shared()`. Example: `shared(script.Folder.Module)`
+You can also require instances directly with `shared()` if needed. Example: `shared(script.Folder.Module)` 
 
 - **Auto Initialization**
 
 Another helpful feature that exists in Eden is the auto initialization of functions in priority order.
 
-By putting an `:Init()` method in your module, Eden will automatically call this method in the order you specify by defining an optional `_Priority` variable in the module table when the game starts. The higher the priority number, the sooner the module will run. You can disable this functionality with the `Static` directory feature (see guidelines below) or with the `_Initialize` param.
+By putting an `:Init()` method in your module, Eden will automatically call this method in the order you specify by defining an optional `Priority` variable in the module table when the game starts. The higher the priority number, the sooner the module will run. You can disable this functionality with the `Static` directory feature (see guidelines below) or with the `Initialize` param.
 
 - **Cyclical module detection**
 
@@ -68,24 +68,24 @@ Eden doesn't care how you organize your modules. You can put all of your modules
 
 **All parameters are optional.**
 
-- **_Priority : number** *(Default: 0)*
+- **Priority : number** *(Default: 0)*
 
 An `int` that specifies the order in which the `:Init()` method is called on game start. The higher the priority, the sooner it will run. Negative `int`s are also allowed and will run after everything else.
 
 
-- **_Initialize : boolean** *(Default: true)*
+- **Initialize : boolean** *(Default: true)*
 
 
 Specifies whether or not the `:Init()` function is called if present. Suitable for disabling modules.
 
 
-- **_PlaceBlacklist : { number }** *(Default : {})*
+- **PlaceBlacklist : { number }** *(Default : {})*
 
 
 A list of `PlaceId`s in which the module will not run its `:Init()` method
 
 
-- **_PlaceWhitelist : { number }** *(Default : {})*
+- **PlaceWhitelist : { number }** *(Default : {})*
 
 
 A list of `PlaceId`s in which the module will run its`:Init()` method. All other places will not run `:Init()`. An empty list assumes no whitelist.
@@ -131,7 +131,7 @@ This is for the explicit module require option. If you manage to have more modul
 
 5. **If you have a module that contains variables the same as that of an optional param, Eden will pick up on it and try to use it.**
 
-For example, if you imported a module into Eden that has a `_Initialize` variable in the returned module table, Eden will try to use it, which could cause an error. In this case, you could put this file in a static directory and Eden won't put it through the internal first-time initialization process.
+For example, if you imported a module into Eden that has a `Initialize` variable in the returned module table, Eden will try to use it, which could cause an error. In this case, you could put this file in a static directory and Eden won't put it through the internal first-time initialization process.
 
 
 # Installation
@@ -289,15 +289,15 @@ Here's an example of a barebones Eden module that makes use of all the parameter
 --= Root =--
 local Example = {
   -- All of the following parameters are optional.
-  _Priority = 0, -- The default priority is 0. The higher the priority, the earlier the module will be loaded. Negative priorities are allowed and will always be loaded last.
+  Priority = 0, -- The default priority is 0. The higher the priority, the earlier the module will be loaded. Negative priorities are allowed and will always be loaded last.
 
-  _Initialize = true, -- Determines if this modules :Init function will be called. If false, the module will not be initialized. Suitable for disabling modules.
+  Initialize = true, -- Determines if this modules :Init function will be called. If false, the module will not be initialized. Suitable for disabling modules.
 
   -- These two are suitable for games that require modules to only run in certain places under a universe
-  _PlaceBlacklist = {
+  PlaceBlacklist = {
     123, -- The place ID of the place to blacklist.
   },
-  _PlaceWhitelist = {
+  PlaceWhitelist = {
     456, -- The place ID of the place to whitelist. If this table is empty, all places will be allowed.
   }
 }

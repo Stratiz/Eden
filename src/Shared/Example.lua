@@ -14,7 +14,7 @@
 --= Root =--
 local Example = {
     -- All of the following paramers are optional so in this case we'll only use one.
-    _Initialize = false -- We wont run the init function
+    Initialize = false -- We wont run the init function
 }
 
 --= Roblox Services =--
@@ -45,7 +45,7 @@ function Example:ExampleMethod() : number
 end
 
 --= Initializers =--
-function Example:Init() -- This function wont run because we set _Initialize to false
+function Example:Init() -- This function wont run because we set Initialize to false
     print("I RAN :)")
 end
 
