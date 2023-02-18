@@ -70,15 +70,7 @@ export type Signal = {
 }
 
 --= Constants =--
-
--- Configurable constants
-local DEBUG_LEVEL = 0 -- 0 = None, 1 = Uncommon info, 2 = Phase info, 3 = Module timings
-local DEBUG_IN_GAME = false
-local FIND_TIMEOUT = 3
-local LONG_LOAD_TIMEOUT = 5
-local LONG_INIT_TIMEOUT = 8
-local PATH_SEPERATOR = "/"
-local STATIC_PATH_KEYWORD = "static"
+local CONFIG = require(script:WaitForChild("Config"))
 local MODULE_PATHS = {
 	-- Core paths
 	RunService:IsClient() and {
@@ -99,8 +91,6 @@ local MODULE_PATHS = {
 	},
 	-- Custom paths
 }
-
--- Internal constants
 local SPECIAL_PARAMS = {
 	"Initialize",
 	"Priority"
@@ -116,7 +106,7 @@ local NativeWarn = warn
 
 --= Internal Functions =--
 local function print(debugLevel : number, ...)
-	if debugLevel <= DEBUG_LEVEL and (RunService:IsStudio() or DEBUG_IN_GAME) then
+	if debugLevel <= CONFIG.DEBUG_LEVEL and (RunService:IsStudio() or CONFIG.DEBUG_IN_GAME) then
 		NativePrint("[EDEN]", ...)
 	end
 end
@@ -152,7 +142,7 @@ local function GetModulePath(pathData : PathData, module : ModuleScript) : strin
 		table.insert(orderedInstanceTable, 1, currentParent.Name)
 		currentParent = currentParent.Parent or game
 	until currentParent == pathData.Instance or currentParent == game
-	return pathData.Alias..PATH_SEPERATOR..table.concat(orderedInstanceTable, PATH_SEPERATOR)
+	return pathData.Alias..(CONFIG.PATH_SEPERATOR)..table.concat(orderedInstanceTable, CONFIG.PATH_SEPERATOR)
 end
 
 -- Adds a module to the Modules table
@@ -230,10 +220,10 @@ local function FindModule(query : string | ModuleScript, _currentTimeout : numbe
 			if currentModuleCount ~= ModuleCount then
 				return FindModule(query :: string, currentTimeout)
 			end
-		until currentTimeout >= FIND_TIMEOUT
+		until currentTimeout >= CONFIG.FIND_TIMEOUT
 
 		return nil
-	elseif #found > 1 then
+	elseif #found > 1 and type(query) == "string" then
 		warn("Multiple modules found with the name '"..query.."'. To clarify, please use the path instead. (ex: Shared/Framework/Module)")
 	end
 
@@ -266,7 +256,7 @@ local function NewRequire(query : string | ModuleScript, _fromInternal : boolean
 		task.spawn(function()
 			while targetModuleData.State == "LOADING" do
 				task.wait()
-				if tick() - timeStart > LONG_LOAD_TIMEOUT then
+				if tick() - timeStart > CONFIG.LONG_LOAD_TIMEOUT then
 					-- Disabling Luau optimizations for the requiring module to check for cyclical dependencies.
 					if _fromInternal ~= true then
 						local requirerEnv = getfenv(0)
@@ -349,7 +339,7 @@ function Eden:InitModules(initFirst : { string | ModuleScript }?)
 	if InitalizedModules == false and InitializingModules == false then
 		print(2, "Requiring modules...")
 		local requiring = #Modules
-		initFirst = initFirst or {}
+		local initFirstArray = initFirst or {}
 
 		InitializingModules = true
 		
@@ -362,12 +352,12 @@ function Eden:InitModules(initFirst : { string | ModuleScript }?)
 
 			-- Order the first requires before general init
 			
-			for index, moduleQuery in ipairs(initFirst) do
+			for index, moduleQuery in ipairs(initFirstArray :: {any}) do
 				local moduleData = FindModule(moduleQuery)
 
 				if moduleData then
 					moduleData.AutoInitData.First = true
-					moduleData.AutoInitData.Priority = (#initFirst - index) + 1
+					moduleData.AutoInitData.Priority = (#initFirstArray - index) + 1
 				else 
 					warn("Failed to prioritize module from initFirst table:", moduleQuery, "not found. Please verify the spelling and path.")
 				end
@@ -378,7 +368,7 @@ function Eden:InitModules(initFirst : { string | ModuleScript }?)
 				if a.AutoInitData.First == b.AutoInitData.First then
 					return a.AutoInitData.Priority > b.AutoInitData.Priority
 				else -- Force first modules are always first
-					return a.AutoInitData.First
+					return a.AutoInitData.First == true
 				end
 			end)
 
@@ -386,9 +376,9 @@ function Eden:InitModules(initFirst : { string | ModuleScript }?)
 			local focusedModuleData = nil
 			local initTime = 0
 			local timerConnection = RunService.Heartbeat:Connect(function(deltaTime)
-				if focusedModuleData and initTime < LONG_INIT_TIMEOUT then
+				if focusedModuleData and initTime < CONFIG.LONG_INIT_TIMEOUT then
 					initTime += deltaTime
-					if initTime >= LONG_INIT_TIMEOUT then
+					if initTime >= CONFIG.LONG_INIT_TIMEOUT then
 						warn("Module", focusedModuleData.Path, "is taking a long time to complete :Init()")
 					end
 				end
@@ -415,10 +405,10 @@ function Eden:InitModules(initFirst : { string | ModuleScript }?)
 		-- Get Init data
 		for _,moduleData in ipairs(Modules) do
 			-- Check for static directory
-			local directories = moduleData.Path:split(PATH_SEPERATOR)
+			local directories = moduleData.Path:split(CONFIG.PATH_SEPERATOR)
 			local staticIndex
 			for index, directoryName in directories do
-				if string.lower(directoryName) == STATIC_PATH_KEYWORD then
+				if string.lower(directoryName) == CONFIG.STATIC_DIRECTORY_KEYWORD then
 					staticIndex = index
 					break
 				end

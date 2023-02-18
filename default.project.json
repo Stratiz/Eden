@@ -8,7 +8,10 @@
       "SharedModules": {
         "$path": "src/Shared",
         "Eden": {
-          "$path" : "src/Eden.lua" 
+          "$path" : "src/Eden.lua",
+          "Config" : {
+            "$path" : "Eden.config.lua"
+          }
         }
       }
     },
