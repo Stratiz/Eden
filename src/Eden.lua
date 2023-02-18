@@ -49,7 +49,7 @@ type ModuleData = {
 	Path: string,
 	State : ModuleState,
 	RequiredBy: { ModuleData },
-	Static : boolean?,
+	Static : boolean,
 	AutoInitData: {
 		Priority : number,
 		Init: (self : any?) -> ()?,
@@ -151,7 +151,7 @@ local function GetModulePath(pathData : PathData, module : ModuleScript) : strin
 end
 
 -- Adds a module to the Modules table
-local function AddModule(pathData : PathData, module : ModuleScript) : boolean
+local function AddModule(pathData : PathData, module : ModuleScript, isStatic : boolean) : boolean
 	if module:IsA("ModuleScript") then
 		local newModuleData = {
 			Instance = module,
@@ -159,6 +159,7 @@ local function AddModule(pathData : PathData, module : ModuleScript) : boolean
 			Path = GetModulePath(pathData, module),
 			State = "INACTIVE" :: ModuleState,
 			RequiredBy = {},
+			Static = isStatic,
 			AutoInitData = {
 				Priority = 0
 			}
@@ -170,6 +171,19 @@ local function AddModule(pathData : PathData, module : ModuleScript) : boolean
 	else
 		return false
 	end
+end
+
+-- Determines if an instance is a static directory
+local function IsObjectStaticDirectory(object : Instance) : boolean
+	if object:IsA("Folder") then
+		if string.lower(object.Name) == CONFIG.STATIC_DIRECTORY_NAME then
+			return true
+		end
+	elseif CONFIG.SCRIPTS_AS_STATIC_DIRECTORY == true and object:IsA("LuaSourceContainer") then
+		return true
+	end
+
+	return false
 end
 
 -- Returns a string of the circular dependency tree if one exists.
@@ -192,9 +206,11 @@ local function GetParamsFromRequiredData(requiredData : any) : { [string] : any 
 	local params = {}
 
 	if type(requiredData) == "table" then
+		local initParamsContainer = rawget(requiredData, "InitParams")
 		local paramsContainer = requiredData
-		if requiredData.InitParams and type(requiredData.InitParams) == "table" then
-			paramsContainer = requiredData.InitParams
+
+		if initParamsContainer and type(initParamsContainer) == "table" then
+			paramsContainer = initParamsContainer
 		end
 
 		for _, paramName in SPECIAL_PARAMS do
@@ -409,22 +425,10 @@ function Eden:InitModules(initFirst : { string | ModuleScript }?)
 
 		-- Get Init data
 		for _,moduleData in ipairs(Modules) do
-			-- Check for static directory
-			local directories = moduleData.Path:split(CONFIG.PATH_SEPERATOR)
-			local staticIndex
-			for index, directoryName in directories do
-				if string.lower(directoryName) == CONFIG.STATIC_DIRECTORY_KEYWORD then
-					staticIndex = index
-					break
-				end
-			end
-
-			if staticIndex and moduleData.Static ~= false then
-				moduleData.Static = true
+			-- If module is static, skip it
+			if moduleData.Static == true then
 				tryFinalize()
 				continue
-			else
-				moduleData.Static = false
 			end
 
 			-- Require module
@@ -459,16 +463,38 @@ print(2, "Aggregating modules...")
 
 for _, pathData in ipairs(MODULE_PATHS) do
 	pathData.Instance.DescendantAdded:Connect(function(moduleInstance)
-		local success = AddModule(pathData, moduleInstance)
+		if moduleInstance:IsA("ModuleScript") then
+			local hasStaticParent = false
+			
+			do -- Check for static parent
+				local parent = moduleInstance.Parent
+				while parent ~= nil and parent ~= pathData.Instance do
+					if IsObjectStaticDirectory(parent) then
+						hasStaticParent = true
+						break
+					end
+					parent = parent.Parent
+				end
+			end
 
-		if success and InitializingModules == true or InitalizedModules == true then
-			warn("Module", moduleInstance.Name, "replicated late to", pathData.Alias, "module folder. This may cause unexpected behavior.")
+			local success = AddModule(pathData, moduleInstance, hasStaticParent)
+
+			if success and InitializingModules == true or InitalizedModules == true then
+				warn("Module", moduleInstance.Name, "replicated late to", pathData.Alias, "module folder. This may cause unexpected behavior.")
+			end
 		end
 	end)
 
-	for _, module in pairs(pathData.Instance:GetDescendants()) do
-		AddModule(pathData, module)
+	local function findModules(directory : Instance, isStatic : boolean )
+		for _, object in pairs(directory:GetChildren()) do
+			AddModule(pathData, object, isStatic)
+			
+			-- Check for static directory and continue searching
+			findModules(object, isStatic or IsObjectStaticDirectory(object))
+		end
 	end
+
+	findModules(pathData.Instance, false)
 end
 
 print(2, "Aggregated "..(ModuleCount).." modules!")

@@ -211,9 +211,13 @@ In the root directory of your repository, there should always be a `Eden.config.
 
   The character which is used to seperate names in a path. For example, if your path serpator is "/", then your requires will be `shared("Server/Example")`, but if its ".", then your requires would be `shared("Server.Example")`.
 
-- **STATIC_DIRECTORY_KEYWORD** : `string` *(Default: "static")*
+- **STATIC_DIRECTORY_NAME** : `string` *(Default: "static")*
   
   The non-case sensitive folder name Eden should look for when detecting static directories. 
+
+- **SCRIPTS_AS_STATIC_DIRECTORY** : `boolean` *(Default: true)*
+
+  When true, Eden will treat any type of script instance as a static directory, meaning decendant modules of a module or script wont be automatically required and :Init()'ed
 
 # Installation
 

@@ -18,6 +18,10 @@ return {
     PATH_SEPERATOR = "/",
     -- The seperator used in paths ("Shared/Dir/Example")
 
-    STATIC_DIRECTORY_KEYWORD = "static",
-    -- The keyword used to indicate a static directory ("Shared/static/Example")
+    STATIC_DIRECTORY_NAME = "static",
+    -- The name used to indicate a static directory ("Shared/static/Example")
+
+    SCRIPTS_AS_STATIC_DIRECTORY = true
+    -- If true, will treat scripts & module scripts as static directories
+
 }
