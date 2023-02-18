@@ -70,7 +70,7 @@ export type Signal = {
 }
 
 --= Constants =--
-local CONFIG = require(script:WaitForChild("Config"))
+local CONFIG = require(script:WaitForChild("EdenConfig"))
 local MODULE_PATHS = {
 	-- Core paths
 	RunService:IsClient() and {

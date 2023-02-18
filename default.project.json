@@ -9,7 +9,7 @@
         "$path": "src/Shared",
         "Eden": {
           "$path" : "src/Eden.lua",
-          "Config" : {
+          "EdenConfig" : {
             "$path" : "Eden.config.lua"
           }
         }

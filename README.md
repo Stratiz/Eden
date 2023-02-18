@@ -148,8 +148,7 @@ If you're not using a GitHub workflow and want to use Eden in native Roblox Stud
 
 <br>
 
-Enable HTTP requests by going to [Home -> Game Settings -> Security -> Allow HTTP Requests] in studio (You may disable this after), then paste and run the following code:
-
+Enable HTTP requests by going to [Home -> Game Settings -> Security -> Allow HTTP Requests] in studio (You may disable this after), then paste and run the following code in the command bar [View -> Command Bar]:
 
 ```lua
 -- This has intentionally sloppy error handling, if it breaks let it break and report it.
@@ -162,25 +161,30 @@ local function HttpGet(url : string)
 	return HttpService:GetAsync(url)
 end
 
-local function MakeFileFromGithub(filename, url)
+local function MakeFileFromGithub(filename, url, alias)
 	print("Fetching", filename)
 	
-	local DotPosition = string.find(filename, "%.")
-	local TrueFileName = string.sub(filename, 1, DotPosition-1) 
-	local FileType = string.sub(filename, DotPosition + 1)
+	local FileNameParts = string.split(filename, ".")
+	local TrueFileName = FileNameParts[1]
+
+	table.remove(FileNameParts, 1)
+
+	local FileType = table.concat(FileNameParts, ".")
 	local FileContent = HttpGet(url)
 	
 	 
 	local ScriptInstance
-	if FileType == "server.lua" then
-		ScriptInstance = Instance.new("Script")
-	elseif FileType == "client.lua" then
-		ScriptInstance = Instance.new("LocalScript")
-	elseif FileType == "lua" then
-		ScriptInstance = Instance.new("ModuleScript")
+	if FileNameParts[#FileNameParts] == "lua" then
+		if FileNameParts[#FileNameParts - 1] == "server" then
+			ScriptInstance = Instance.new("Script")
+		elseif FileNameParts[#FileNameParts - 1] == "client" then
+			ScriptInstance = Instance.new("LocalScript")
+		else
+			ScriptInstance = Instance.new("ModuleScript")
+		end
 	end
 	
-	ScriptInstance.Name = TrueFileName
+	ScriptInstance.Name = alias or TrueFileName
 	ScriptInstance.Source = FileContent
 	
 	return ScriptInstance
@@ -209,9 +213,15 @@ local function FindFolder(target, parent)
 			else
 				local Path = DirectoryData["$path"]
 				if string.match(Path, ".lua") then
-
 					local DirData = string.split(Path, "/")
-					table.insert(ToParent, {Parent = parent, Instance = MakeFileFromGithub(DirData[#DirData], RawRepoURL..Path)})
+					local NewFile = MakeFileFromGithub(DirData[#DirData], RawRepoURL..Path, DirectoryName)
+					table.insert(ToParent, {Parent = parent, Instance = NewFile})
+
+					for key, value in DirectoryData do
+						if string.sub(key, 1, 1) ~= "$" then
+							FindFolder(DirectoryData, NewFile)
+						end
+					end
 				else
 					local NewFolder = GetGithubFolder(Path)
 					NewFolder.Name = DirectoryName
@@ -255,12 +265,16 @@ print("Done!")
 4. In studio, create a folder under `StarterPlayer -> StarterPlayerScripts` called "ClientModules", this folder is where you will put all of your client code **modules**.
 
 5. In the studio, create a folder under `ReplicatedStorage` called "SharedModules", this folder is where you will put all of your code that needs to be shared between the client and server.
+   
+6. In studio, copy and paste the contents of `Eden.lua` into a ModuleScript called "Eden" under "SharedModules" folder in `ReplicatedStorage`
+   
+7. In studio, copy and paste the contents of `Eden.config.lua` into a ModuleScript called "EdenConfig" under the "Eden" module in "SharedModules"
 
-6. In studio, copy and paste the contents of `ServerLoader.server.lua` into a Script called "ServerLoader" directly under `ServerScriptService`
+8. In studio, copy and paste the contents of `ServerLoader.server.lua` into a Script called "ServerLoader" directly under `ServerScriptService`
 
-7. In studio, copy and paste the contents of `ClientLoader.client.lua` into a Script called "ClientLoader" directly under `ReplicatedFirst`
+9. In studio, copy and paste the contents of `ClientLoader.client.lua` into a Script called "ClientLoader" directly under `ReplicatedFirst`
 
-8. Done!
+10. Done!
 
 </details>
 
