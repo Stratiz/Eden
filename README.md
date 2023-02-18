@@ -3,9 +3,9 @@
 
 # [The Eden Framework](https://github.com/Stratiz/Eden) 
 
-Eden is a lightweight & flexible module aggregator framework designed to grow with you. Populate the framework with your own utilities, modules from other frameworks, etc., and Eden will take it with little to no modification.
+Eden is a lightweight & flexible module aggregator framework designed to grow with you. Populate the framework with your own utilities, modules from other frameworks, etc., and Eden will take it with ease.
 
-The primary goal of Eden is to eliminate the common hassle when it comes to over-complicated Roblox frameworks. Instead, Eden keeps it lean and straightforward by providing a flexible, essentialistic foundation for you and your team to build your project in a rapid iteration environment like Roblox.
+The primary goal of Eden is to eliminate the common hassle when it comes to over-complicated Roblox frameworks. Eden keeps it lean and straightforward by providing a flexible, essentialistic foundation for you and your team to build your project in a rapid iteration environment like Roblox.
 
 Eden is designed to be used with Rojo but can easily be implemented without it.
 
@@ -19,6 +19,7 @@ Eden is designed to be used with Rojo but can easily be implemented without it.
 	- [Methods](#methods)
 	- [Properties](#properties)
 	- [Types](#types)
+- [Config](#config)
 - [Installation](#installation)
 	- [Rojo/GitHub](#rojogithub)
 	- [Studio](#studio)
@@ -32,7 +33,7 @@ Eden is designed to be used with Rojo but can easily be implemented without it.
 
 Due to Eden's flexible design, the learning curve is minimal and is perfect for teams onboarding new developers or studios looking for a consistent and predictable framework.
 
-Eden is designed to be as predictable as possible, meaning there's no room for unexpected behavior or obscure edge cases.
+Eden is designed to be as predictable as possible, meaning there's no room for unexpected behavior or tedious edge cases.
 
 - **Module Aggregation for simple requiring**
 
@@ -48,15 +49,14 @@ You can also require instances directly with `shared()` if needed. Example: `sha
 
 Another helpful feature that exists in Eden is the auto initialization of functions in priority order.
 
-By putting an `:Init()` method in your module, Eden will automatically call this method in the order you specify by defining an optional `Priority` variable in the module table when the game starts. The higher the priority number, the sooner the module will run. You can disable this functionality with the `Static` directory feature (see guidelines below) or with the `Initialize` param.
+By putting an `:Init()` method in your module, Eden will automatically call this method in the order you specify by defining an optional `Priority` variable in the module table when the game starts. The higher the priority number, the sooner the module will run. You can disable this functionality with the `Static` directory feature (see guidelines below) or with the `Initialize` parameter.
 
 - **Cyclical module detection**
 
-Silent cyclical hangs are unfortunate, as they cause your game to break silently and take time to find. Thankfully, Eden will automatically detect and warn you if this occurs.
+While Roblox attempts to detect cyclicals between modules, it fails in some conditions. Especially in the presence of as yeilding function such as `:WaitForChild()`, which results in a infinite hang with no warning. Silent cyclical hangs are bothersome, as they cause your game to break silently and take time to find. 
+Thankfully, Eden will automatically detect and warn you if this occurs.
 
-NOTE: Due to Luau limitations, a module that surpasses the `LOAD_TIMEOUT` time will lose any Luau optimizations during that run session.
-
-*Check out the Order framework if you're into cyclicals (https://github.com/michaeldougal/order)*
+NOTE: Due to current Luau limitations, a module that surpasses the `LOAD_TIMEOUT` time will lose any Luau optimizations during that run session.
 
 - **Hang detection**
 
@@ -160,7 +160,7 @@ To access the Eden module, you could either require it the same way as any other
 	A signal that fires once all the modules have finished initializing.
 
 ## Types
-- ### **Signal**
+-  **Signal**
   
 	Used to mimic an `RBXScriptSignal` since they're not creatable.
 
@@ -182,6 +182,38 @@ To access the Eden module, you could either require it the same way as any other
 
 		Yeilds until the Signal is Fire()'d
 
+# Config
+
+In the root directory of your repository, there should always be a `Eden.config.lua` file. This file is the primary user facing configuration for Eden. (File is `EdenConfig` under `Eden` for studio users)
+
+- **DEBUG_LEVEL** : `number` *(Default: 1)*
+  
+  Very useful for getting insight on whats holding up your call stack.
+  1 = Errors & Warnings only, 2 = Phase info, 3 = Module timings
+
+- **DEBUG_IN_GAME** : `boolean` *(Default: false)*
+
+  If true, will print debug messages to the in-game console. Warnings and errors will always be printed to the in-game console regardless of the state of this option.
+
+- **FIND_TIMEOUT** : `number` *(Default: 3)*
+  
+  The max amount time in seconds Eden should wait for a module to exist.
+
+- **LONG_LOAD_TIMEOUT** : `number` *(Default: 5)*
+
+  The amount of time in seconds Eden should wait before warning and running cyclical checks on modules involved in the call stack.
+
+- **LONG_INIT_TIMEOUT** : `number` *(Default: 8)*
+
+  The amount of time in seconds Eden should wait before warning that a modules `:Init()` function is taking a long time.
+
+- **PATH_SEPERATOR** : `string` *(Default: "/")*
+
+  The character which is used to seperate names in a path. For example, if your path serpator is "/", then your requires will be `shared("Server/Example")`, but if its ".", then your requires would be `shared("Server.Example")`.
+
+- **STATIC_DIRECTORY_KEYWORD** : `string` *(Default: "static")*
+  
+  The non-case sensitive folder name Eden should look for when detecting static directories. 
 
 # Installation
 

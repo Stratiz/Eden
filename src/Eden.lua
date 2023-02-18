@@ -229,7 +229,7 @@ local function FindModule(query : string | ModuleScript, _currentTimeout : numbe
 
 		return nil
 	elseif #found > 1 and type(query) == "string" then
-		warn("Multiple modules found with the name '"..query.."'. To clarify, please use the path instead. (ex: Shared/Framework/Module)")
+		warn("Multiple modules found with the name '"..query.."'. To clarify, please use the path instead. "..string.gsub("(ex: Shared/Framework/Module)", "/", CONFIG.PATH_SEPERATOR))
 	end
 
 	return found[1]
@@ -238,11 +238,11 @@ end
 -- The main require function that overrides the default require function
 local function NewRequire(query : string | ModuleScript, _fromInternal : boolean?) : any
 	-- Default require functionality
-	if typeof(query) == "Instance" then
+	if typeof(query) == "Instance" and _fromInternal ~= true then
 		return require(query :: ModuleScript) --//TC: Luau typechecking doesnt like this because its not an explicit path, which is why we wont use !strict
 	end
 
-	local targetModuleData = FindModule(query :: string)
+	local targetModuleData = FindModule(query)
 
 	if not targetModuleData then
 		error("Module "..(query :: string).." not found",3)
@@ -430,7 +430,7 @@ function Eden:InitModules(initFirst : { string | ModuleScript }?)
 			-- Require module
 			task.defer(function()
 				local success, requiredData = pcall(function()
-					return NewRequire(moduleData.Path, true)
+					return NewRequire(moduleData.Instance, true)
 				end)
 				if not success then
 					warn("Module", moduleData.Path, "failed to auto-load:", requiredData)
