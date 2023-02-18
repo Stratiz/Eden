@@ -86,12 +86,12 @@ In the event these parameters collide with parameters in one of your modules and
 Example:
 ```lua
 local module = {
-	InitParams = { -- These will be used by Eden instead.
-		Priority = 20
-		Initialize = false
-	}
+   InitParams = { -- These will be used by Eden instead.
+     Priority = 20
+     Initialize = false
+   }
 
-	Priority = 1 -- Eden will ignore this because InitParams is present.
+   Priority = 1 -- Eden will ignore this because InitParams is present.
 }
 
 return module
