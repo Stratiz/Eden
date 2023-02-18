@@ -218,6 +218,16 @@ In the root directory of your repository, there should always be a `Eden.config.
 - **SCRIPTS_AS_STATIC_DIRECTORY** : `boolean` *(Default: true)*
 
   When true, Eden will treat any type of script instance as a static directory, meaning decendant modules of a module or script wont be automatically required and :Init()'ed
+  
+  In the event where you want a module's child modules to go through the automatic Init, you could pass them through `:AddModulesToInit()`
+  ```lua
+  local module = {}
+  
+  local Eden = shared("Eden")
+  Eden:AddModulesToInit(script:GetChildren())
+
+  return module
+  ```
 
 # Installation
 

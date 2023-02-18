@@ -100,8 +100,9 @@ local SPECIAL_PARAMS = {
 --= Variables =--
 local Modules : { ModuleData } = {}
 local ModuleCount = 0
-local InitializingModules = false
 local InitalizedModules = false
+local InitModulesPhaseInt = 0
+local AddToInitProcessCount = 0
 local NativePrint = print
 local NativeWarn = warn
 
@@ -319,6 +320,26 @@ local function NewRequire(query : string | ModuleScript, _fromInternal : boolean
 	end
 end
 
+-- Do the first require for a module
+local function DoFirstRequire(moduleData : ModuleData)
+	local success, requiredData = pcall(function()
+		return NewRequire(moduleData.Instance, true)
+	end)
+	if not success then
+		warn("Module", moduleData.Path, "failed to auto-load:", requiredData)
+	end
+
+	local moduleParams = GetParamsFromRequiredData(requiredData)
+	if type(requiredData) == "table" and moduleParams.Initialize ~= false then
+
+		moduleData.AutoInitData = {
+			Priority = moduleParams.Priority or 0,
+			Init = rawget(requiredData, "Init"),
+			RequiredData = requiredData
+		}
+	end
+end
+
 --= API Methods =--
 Eden.ModulesInitalizedEvent = MakeSignal()
 
@@ -331,48 +352,64 @@ end
 function Eden:AddModulesToInit(addModules : { string | ModuleScript })
 	addModules = addModules or {}
 
-	if InitalizedModules == false and InitializingModules == false then
+	if InitalizedModules == false and InitModulesPhaseInt < 2 then
+		AddToInitProcessCount += 1
+
 		local addedCount = 0
 		for _, moduleQuery in ipairs(addModules) do
-			task.spawn(function()
-				local moduleData = FindModule(moduleQuery)
+			if type(moduleQuery) ~= "userdata" or moduleQuery:IsA("ModuleScript") then
+				task.spawn(function()
+					local moduleData = FindModule(moduleQuery)
+	
+					if moduleData then
+						moduleData.Static = false
+						DoFirstRequire(moduleData)
+					else
+						warn("Failed to add module to init flow:", moduleQuery, "not found in Eden directory. Please verify the spelling and/or path.")
+					end
 
-				if moduleData then
-					moduleData.Static = false
-				else 
-					warn("Failed to add module to init flow:", moduleQuery, "not found. Please verify the spelling and path.")
-				end
-
+					addedCount += 1
+				end)
+			else 
+				warn("Failed to add module to init flow: Instance", moduleQuery:GetFullName(), "is not a valid module query.")
 				addedCount += 1
-			end)
+			end
 		end
 
 		while #addModules > addedCount do
 			task.wait()
 		end
+
+		AddToInitProcessCount -= 1
 	else
-		error("Cannot add modules to Init flow after :InitModules() has been called.")
+		error("Cannot add modules to Init flow after :InitModules() has finished all module requires.")
 	end
 end
 
 -- Initializes all modules in the current context
 function Eden:InitModules(initFirst : { string | ModuleScript }?)
-	if InitalizedModules == false and InitializingModules == false then
+	if InitalizedModules == false and InitModulesPhaseInt == 0 then
 		print(2, "Requiring modules...")
 		local requiring = #Modules
 		local initFirstArray = initFirst or {}
 
-		InitializingModules = true
+		InitModulesPhaseInt = 1
 		
 		local function tryFinalize()
 			requiring -= 1
 			if requiring > 0 then
 				return
 			end
+
+			-- Wait for any modules that are being added to the init flow
+			while AddToInitProcessCount > 0 do
+				task.wait()
+			end
+
 			print(2, "Finished requiring modules, starting init...")
+			InitModulesPhaseInt = 2
 
 			-- Order the first requires before general init
-			
 			for index, moduleQuery in ipairs(initFirstArray :: {any}) do
 				local moduleData = FindModule(moduleQuery)
 
@@ -380,7 +417,7 @@ function Eden:InitModules(initFirst : { string | ModuleScript }?)
 					moduleData.AutoInitData.First = true
 					moduleData.AutoInitData.Priority = (#initFirstArray - index) + 1
 				else 
-					warn("Failed to prioritize module from initFirst table:", moduleQuery, "not found. Please verify the spelling and path.")
+					warn("Failed to prioritize module from initFirst table:", moduleQuery, "not found. Please verify the spelling and/or path.")
 				end
 			end
 
@@ -416,7 +453,7 @@ function Eden:InitModules(initFirst : { string | ModuleScript }?)
 			end
 			timerConnection:Disconnect()
 			InitalizedModules = true
-			InitializingModules = false
+			InitModulesPhaseInt = 3
 
 			self.ModulesInitalizedEvent:Fire()
 			
@@ -433,22 +470,7 @@ function Eden:InitModules(initFirst : { string | ModuleScript }?)
 
 			-- Require module
 			task.defer(function()
-				local success, requiredData = pcall(function()
-					return NewRequire(moduleData.Instance, true)
-				end)
-				if not success then
-					warn("Module", moduleData.Path, "failed to auto-load:", requiredData)
-				end
-
-				local moduleParams = GetParamsFromRequiredData(requiredData)
-				if type(requiredData) == "table" and moduleParams.Initialize ~= false then
-
-					moduleData.AutoInitData = {
-						Priority = moduleParams.Priority or 0,
-						Init = rawget(requiredData, "Init"),
-						RequiredData = requiredData
-					}
-				end
+				DoFirstRequire(moduleData)
 
 				tryFinalize()
 			end)
@@ -479,7 +501,7 @@ for _, pathData in ipairs(MODULE_PATHS) do
 
 			local success = AddModule(pathData, moduleInstance, hasStaticParent)
 
-			if success and InitializingModules == true or InitalizedModules == true then
+			if success and InitModulesPhaseInt > 0 or InitalizedModules == true then
 				warn("Module", moduleInstance.Name, "replicated late to", pathData.Alias, "module folder. This may cause unexpected behavior.")
 			end
 		end
@@ -488,7 +510,7 @@ for _, pathData in ipairs(MODULE_PATHS) do
 	local function findModules(directory : Instance, isStatic : boolean )
 		for _, object in pairs(directory:GetChildren()) do
 			AddModule(pathData, object, isStatic)
-			
+
 			-- Check for static directory and continue searching
 			findModules(object, isStatic or IsObjectStaticDirectory(object))
 		end
