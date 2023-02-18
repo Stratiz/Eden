@@ -335,7 +335,7 @@ function Eden:AddModulesToInit(addModules : { string | ModuleScript })
 			task.wait()
 		end
 	else
-		error("Cannot add modules to Init flow after modules have been initialized via :InitModules()")
+		error("Cannot add modules to Init flow after :InitModules() has been called.")
 	end
 end
 
