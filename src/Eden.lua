@@ -2,7 +2,7 @@
 	Eden.lua
 	Stratiz
 	Created on 09/06/2022 @ 21:50
-	Updated on 10/23/2022 @ 01:41
+	Updated on 2/17/2023 @ 18:18
 	
 	Description:
 		Module aggregator for Eden.
@@ -21,10 +21,14 @@
 
 		:AreModulesInitialized() : boolean
 			Returns whether or not all modules have been initialized. Good for loading screens.
+		
+		:AddModulesToInit(addModules : { string | ModuleScript })
+			Adds modules to the initialization queue that otherwise wouldnt be initialized. Good for conditionally enabling/loading static modules for things like loading modules
+			only under a specific placeId.
 			
-		:InitModules(explictRequires: {string}?)
+		:InitModules(initFirst: {string | ModuleScript}?)
 			Fires by default in the ServerLoader and ClientLoader scripts.
-			Initializes all modules in the context, with the option of explictly defining what modules load first. This is a legacy feature but is still supported.
+			Initializes all modules in the context, with the option of explicitly defining what modules load first. This is a legacy feature but is still supported.
 --]]
 
 --= Root =--
@@ -45,10 +49,12 @@ type ModuleData = {
 	Path: string,
 	State : ModuleState,
 	RequiredBy: { ModuleData },
+	Static : boolean?,
 	AutoInitData: {
 		Priority : number,
 		Init: (self : any?) -> ()?,
-		RequiredData : any?
+		RequiredData : any?,
+		First : boolean?
 	}
 }
 
@@ -64,16 +70,15 @@ export type Signal = {
 }
 
 --= Constants =--
+
+-- Configurable constants
 local DEBUG_LEVEL = 0 -- 0 = None, 1 = Uncommon info, 2 = Phase info, 3 = Module timings
+local DEBUG_IN_GAME = false
 local FIND_TIMEOUT = 3
 local LONG_LOAD_TIMEOUT = 5
 local LONG_INIT_TIMEOUT = 8
-local MAX_PRIORITY = 2^16
 local PATH_SEPERATOR = "/"
-local SPECIAL_PARAMS = {
-	"Initialize",
-	"Priority"
-}
+local STATIC_PATH_KEYWORD = "static"
 local MODULE_PATHS = {
 	-- Core paths
 	RunService:IsClient() and {
@@ -95,6 +100,12 @@ local MODULE_PATHS = {
 	-- Custom paths
 }
 
+-- Internal constants
+local SPECIAL_PARAMS = {
+	"Initialize",
+	"Priority"
+}
+
 --= Variables =--
 local Modules : { ModuleData } = {}
 local ModuleCount = 0
@@ -105,7 +116,7 @@ local NativeWarn = warn
 
 --= Internal Functions =--
 local function print(debugLevel : number, ...)
-	if debugLevel <= DEBUG_LEVEL then
+	if debugLevel <= DEBUG_LEVEL and (RunService:IsStudio() or DEBUG_IN_GAME) then
 		NativePrint("[EDEN]", ...)
 	end
 end
@@ -186,8 +197,13 @@ local function GetParamsFromRequiredData(requiredData : any) : { [string] : any 
 	local params = {}
 
 	if type(requiredData) == "table" then
+		local paramsContainer = requiredData
+		if requiredData.InitParams and type(requiredData.InitParams) == "table" then
+			paramsContainer = requiredData.InitParams
+		end
+
 		for _, paramName in SPECIAL_PARAMS do
-			params[paramName] = rawget(requiredData, paramName)
+			params[paramName] = rawget(paramsContainer, paramName)
 		end
 	end
 
@@ -195,16 +211,29 @@ local function GetParamsFromRequiredData(requiredData : any) : { [string] : any 
 end
 
 -- Returns the module data object for a module if the query is found
-local function FindModule(query : string) : ModuleData?
+local function FindModule(query : string | ModuleScript, _currentTimeout : number?) : ModuleData?
 	local found = {}
 
-	for _,ModuleData in ipairs(Modules) do
-		if ModuleData.Name == query or ModuleData.Path == query then
-			table.insert(found, ModuleData)
+	for _, moduleData in ipairs(Modules) do
+		if moduleData.Name == query or moduleData.Path == query or moduleData.Instance == query then
+			table.insert(found, moduleData)
 		end
 	end
 
-	if #found > 1 then
+	if #found == 0 then
+		local currentTimeout = _currentTimeout or 0
+		local currentModuleCount = ModuleCount
+
+		repeat
+			currentTimeout += task.wait()
+
+			if currentModuleCount ~= ModuleCount then
+				return FindModule(query :: string, currentTimeout)
+			end
+		until currentTimeout >= FIND_TIMEOUT
+
+		return nil
+	elseif #found > 1 then
 		warn("Multiple modules found with the name '"..query.."'. To clarify, please use the path instead. (ex: Shared/Framework/Module)")
 	end
 
@@ -215,21 +244,10 @@ end
 local function NewRequire(query : string | ModuleScript, _fromInternal : boolean?) : any
 	-- Default require functionality
 	if typeof(query) == "Instance" then
-		return require(query :: ModuleScript) --//TC: Luau typechecking doesnt like this because its not an explict path, which is why we wont use !strict
+		return require(query :: ModuleScript) --//TC: Luau typechecking doesnt like this because its not an explicit path, which is why we wont use !strict
 	end
 
-	local currentTimeout = 0
 	local targetModuleData = FindModule(query :: string)
-	local currentModuleCount = 0
-
-	while not targetModuleData and currentTimeout < FIND_TIMEOUT do
-		if currentModuleCount ~= ModuleCount then
-			currentModuleCount = ModuleCount
-			FindModule(query :: string)
-		end
-
-		currentTimeout += task.wait()
-	end
 
 	if not targetModuleData then
 		error("Module "..(query :: string).." not found",3)
@@ -282,7 +300,7 @@ local function NewRequire(query : string | ModuleScript, _fromInternal : boolean
 		local toReturn = require(targetModuleData.Instance) --//TC: Same typechecking issue as above
 
 		if targetModuleData.State == "LOADING" then
-			print(3, targetModuleData.Path, "Took",string.format("%.4f", tick()-timeStart),"seconds to require.")
+			print(3, targetModuleData.Path, "Took", string.format("%.4f", tick()-timeStart), "seconds to require.")
 			targetModuleData.State = "ACTIVE"
 		end
 
@@ -298,13 +316,42 @@ function Eden:AreModulesInitialized() : boolean
 	return InitalizedModules
 end
 
+-- Makes static modules active by adding them to the Init flow.
+function Eden:AddModulesToInit(addModules : { string | ModuleScript })
+	addModules = addModules or {}
+
+	if InitalizedModules == false and InitializingModules == false then
+		local addedCount = 0
+		for _, moduleQuery in ipairs(addModules) do
+			task.spawn(function()
+				local moduleData = FindModule(moduleQuery)
+
+				if moduleData then
+					moduleData.Static = false
+				else 
+					warn("Failed to add module to init flow:", moduleQuery, "not found. Please verify the spelling and path.")
+				end
+
+				addedCount += 1
+			end)
+		end
+
+		while #addModules > addedCount do
+			task.wait()
+		end
+	else
+		error("Cannot add modules to Init flow after modules have been initialized via :InitModules()")
+	end
+end
+
 -- Initializes all modules in the current context
-function Eden:InitModules(explictRequires : { string }?)
-	if InitializingModules == false then
+function Eden:InitModules(initFirst : { string | ModuleScript }?)
+	if InitalizedModules == false and InitializingModules == false then
 		print(2, "Requiring modules...")
 		local requiring = #Modules
+		initFirst = initFirst or {}
+
 		InitializingModules = true
-		explictRequires = explictRequires or {}
 		
 		local function tryFinalize()
 			requiring -= 1
@@ -313,17 +360,26 @@ function Eden:InitModules(explictRequires : { string }?)
 			end
 			print(2, "Finished requiring modules, starting init...")
 
-			-- Order the explicit requires before init
-			for _,moduleData in ipairs(Modules) do
-				local targetIndex = table.find(explictRequires :: {any}, moduleData.Path)
-				if targetIndex then
-					moduleData.AutoInitData.Priority = MAX_PRIORITY + ((#explictRequires - targetIndex) + 1)
+			-- Order the first requires before general init
+			
+			for index, moduleQuery in ipairs(initFirst) do
+				local moduleData = FindModule(moduleQuery)
+
+				if moduleData then
+					moduleData.AutoInitData.First = true
+					moduleData.AutoInitData.Priority = (#initFirst - index) + 1
+				else 
+					warn("Failed to prioritize module from initFirst table:", moduleQuery, "not found. Please verify the spelling and path.")
 				end
 			end
 
 			-- Sort Modules by priority
 			table.sort(Modules, function(a, b)
-				return a.AutoInitData.Priority > b.AutoInitData.Priority
+				if a.AutoInitData.First == b.AutoInitData.First then
+					return a.AutoInitData.Priority > b.AutoInitData.Priority
+				else -- Force first modules are always first
+					return a.AutoInitData.First
+				end
 			end)
 
 			-- Timer for long init times
@@ -344,7 +400,7 @@ function Eden:InitModules(explictRequires : { string }?)
 					focusedModuleData = moduleData
 					initTime = 0
 					moduleData.AutoInitData.Init(moduleData.AutoInitData.RequiredData)
-					print(3, moduleData.Path, "Took",string.format("%.4f", initTime),"seconds to :Init()")
+					print(3, moduleData.Path, "Took", string.format("%.4f", initTime), "seconds to :Init()")
 				end
 			end
 			timerConnection:Disconnect()
@@ -362,14 +418,18 @@ function Eden:InitModules(explictRequires : { string }?)
 			local directories = moduleData.Path:split(PATH_SEPERATOR)
 			local staticIndex
 			for index, directoryName in directories do
-				if string.lower(directoryName) == "static" then
+				if string.lower(directoryName) == STATIC_PATH_KEYWORD then
 					staticIndex = index
 					break
 				end
 			end
-			if staticIndex then
+
+			if staticIndex and moduleData.Static ~= false then
+				moduleData.Static = true
 				tryFinalize()
 				continue
+			else
+				moduleData.Static = false
 			end
 
 			-- Require module
@@ -383,15 +443,9 @@ function Eden:InitModules(explictRequires : { string }?)
 
 				local moduleParams = GetParamsFromRequiredData(requiredData)
 				if type(requiredData) == "table" and moduleParams.Initialize ~= false then
-					-- Sanity check priority
-					local targetPriority = moduleParams.Priority or 0
-					if targetPriority > MAX_PRIORITY then
-						warn("Module", moduleData.Path, "has a priority higher than the max priority of", MAX_PRIORITY, " and will be clamped. Please lower the 'Priority' to avoid unintended behavior.")
-						targetPriority = MAX_PRIORITY
-					end
 
 					moduleData.AutoInitData = {
-						Priority = targetPriority,
+						Priority = moduleParams.Priority or 0,
 						Init = rawget(requiredData, "Init"),
 						RequiredData = requiredData
 					}

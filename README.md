@@ -9,8 +9,6 @@ The primary goal of Eden is to eliminate the common hassle when it comes to over
 
 Eden is designed to be used with Rojo but can easily be implemented without it.
 
-*Check out the repository branches for examples of populated Eden projects.*
-
 ## Table of Contents
 - [The Eden Framework](#the-eden-framework)
 	- [Table of Contents](#table-of-contents)
@@ -70,13 +68,30 @@ Eden doesn't care how you organize your modules. You can put all of your modules
 
 - **Priority : number** *(Default: 0)*
 
-An `int` that specifies the order in which the `:Init()` method is called on game start. The higher the priority, the sooner it will run. Negative `int`s are also allowed and will run after everything else.
+	An `int` that specifies the order in which the `:Init()` method is called on game start. The higher the priority, the sooner it will run. Negative `int`s are also allowed and will run after everything else.
 
 
 - **Initialize : boolean** *(Default: true)*
 
 
-Specifies whether or not the `:Init()` function is called if present. Suitable for disabling modules.
+	Specifies whether or not the `:Init()` function is called if present. Suitable for disabling modules.
+
+
+In the event these parameters collide with parameters in one of your modules and you want to isolate them, **you can put them in a ***InitParams*** dictionary and the properties in the root of the module will be ignored**
+
+Example:
+```lua
+local module = {
+	InitParams = { -- These will be used by Eden instead.
+		Priority = 20
+		Initialize = false
+	}
+
+	Priority = 1 -- Eden will ignore this because InitParams is present.
+}
+
+return module
+```
 
 # Guidelines
 
@@ -112,14 +127,9 @@ local require = require(ReplicatedStorage:WaitForChild("SharedModules"):WaitForC
 
 require("ModuleName")
 ```
+4. **If you have a module that contains variables the same as that of an optional param, Eden will pick up on it and try to use it.**
 
-1. **Modules cannot have a priority greater than 2^16**
-
-This is for the explicit module require option. If you manage to have more modules than that, you can change that limit up to `2^63-1`
-
-5. **If you have a module that contains variables the same as that of an optional param, Eden will pick up on it and try to use it.**
-
-For example, if you imported a module into Eden that has a `Initialize` variable in the returned module table, Eden will try to use it, which could cause an error. In this case, you could put this file in a static directory and Eden won't put it through the internal first-time initialization process.
+For example, if you imported a module into Eden that has a `Initialize` variable in the returned module table, Eden will try to use it, which could cause an error. In this case, you should use the ***InitParams*** structure seen [above](#parameters). Alternatively, you could put this file in a static directory and Eden won't put it through the internal first-time initialization process.
 
 
 # Installation
