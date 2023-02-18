@@ -15,6 +15,10 @@ Eden is designed to be used with Rojo but can easily be implemented without it.
 - [Features](#features)
 - [Parameters](#parameters)
 - [Guidelines](#guidelines)
+- [Eden Module](#eden-module)
+	- [Methods](#methods)
+	- [Properties](#properties)
+	- [Types](#types)
 - [Installation](#installation)
 	- [Rojo/GitHub](#rojogithub)
 	- [Studio](#studio)
@@ -130,6 +134,53 @@ require("ModuleName")
 4. **If you have a module that contains variables the same as that of an optional param, Eden will pick up on it and try to use it.**
 
 For example, if you imported a module into Eden that has a `Initialize` variable in the returned module table, Eden will try to use it, which could cause an error. In this case, you should use the ***InitParams*** structure seen [above](#parameters). Alternatively, you could put this file in a static directory and Eden won't put it through the internal first-time initialization process.
+
+# Eden Module
+
+The primary Eden module comes with some useful public methods to interact with the framework. 
+To access the Eden module, you could either require it the same way as any other module via `shared("Eden")` or by requiring the instance directly. (ReplicatedStorage.SharedModules.Eden)
+## Methods
+- **:AreModulesInitialized() : `boolean`**
+  
+	Returns whether or not all modules have been initialized. Good for loading screens.
+
+- **:AddModulesToInit(*addModules* : `{ string | ModuleScript }`)**
+  
+	Adds modules to the initialization queue that otherwise wouldnt be initialized. Good for conditionally enabling/loading static modules for things like loading modules
+	only under a specific placeId.
+
+- **:InitModules(*initFirst* : `{string | ModuleScript}?`)**
+  
+	Fires by default in the ServerLoader and ClientLoader scripts.
+	Initializes all modules in the context, with the option of explicitly defining what modules will `:Init()` first with absolute priority.
+
+## Properties
+- **.ModulesInitalizedEvent** : `Signal`
+  
+	A signal that fires once all the modules have finished initializing.
+
+## Types
+- ### **Signal**
+  
+	Used to mimic an `RBXScriptSignal` since they're not creatable.
+
+	*Methods:*
+		
+	- **:Connect(*toExecute* : `(any) -> ()`) -> `RBXScriptConnection`**
+  
+		Connects a callback function to trigger when the signal is fired
+
+	- **:Once(*toExecute* : `(any) -> ()`) -> `RBXScriptConnection`**
+  
+		Connects a callback function to trigger when the signal is fired, and then automatically disconnects itself from the signal.
+		
+	- **:Fire(`any`)**
+
+		Invoke all connected callbacks
+
+	- **:Wait() -> `any`**
+
+		Yeilds until the Signal is Fire()'d
 
 
 # Installation

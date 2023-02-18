@@ -16,7 +16,7 @@
 		local ReplicatedStorage = game:GetService("ReplicatedStorage")
 		local require = require(ReplicatedStorage:WaitForChild("SharedModules"):WaitForChild("Eden"))
 
-		.InitalizedModulesEvent : Signal (See signal type export)
+		.ModulesInitalizedEvent : Signal (See signal type export)
 			Signal that fires when all modules have been initialized.
 
 		:AreModulesInitialized() : boolean
@@ -28,7 +28,7 @@
 			
 		:InitModules(initFirst: {string | ModuleScript}?)
 			Fires by default in the ServerLoader and ClientLoader scripts.
-			Initializes all modules in the context, with the option of explicitly defining what modules load first. This is a legacy feature but is still supported.
+			Initializes all modules in the context, with the option of explicitly defining what modules load first.
 --]]
 
 --= Root =--
@@ -64,9 +64,10 @@ type PathData = {
 }
 
 export type Signal = {
-	Connect: (self : any, toExecute : (any) -> ()) -> RBXScriptConnection,
-	Fire: (any),
-	Wait: (self : any) -> any,
+	Connect: (self : Signal, toExecute : (any) -> ()) -> RBXScriptConnection,
+	Once: (self : Signal, toExecute : (any) -> ()) -> RBXScriptConnection,
+	Fire: (self : Signal, any) -> (),
+	Wait: (self : Signal) -> any,
 }
 
 --= Constants =--
@@ -121,6 +122,10 @@ local function MakeSignal() : Signal
 	local newSignal = {}
 	function newSignal:Connect(toExecute : (any) -> ()) : RBXScriptConnection
 		return bindableEvent.Event:Connect(toExecute)
+	end
+
+	function newSignal:Once(toExecute : (any) -> ()) : RBXScriptConnection
+		return bindableEvent.Event:Once(toExecute)
 	end
 
 	function newSignal:Fire(... : any)
@@ -299,7 +304,7 @@ local function NewRequire(query : string | ModuleScript, _fromInternal : boolean
 end
 
 --= API Methods =--
-Eden.InitalizedModulesEvent = MakeSignal()
+Eden.ModulesInitalizedEvent = MakeSignal()
 
 -- Getter function for InitializedModules boolean
 function Eden:AreModulesInitialized() : boolean
@@ -397,7 +402,7 @@ function Eden:InitModules(initFirst : { string | ModuleScript }?)
 			InitalizedModules = true
 			InitializingModules = false
 
-			self.InitalizedModulesEvent:Fire()
+			self.ModulesInitalizedEvent:Fire()
 			
 			print(2, "Initialization complete!")
 		end
