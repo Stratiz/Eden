@@ -2,7 +2,8 @@
 	Eden.lua
 	Stratiz
 	Created on 09/06/2022 @ 21:50
-	Updated on 2/17/2023 @ 18:18
+	Updated on 2/24/2023 @ 02:18
+	Version: 1.0.0
 	
 	Description:
 		Module aggregator for Eden.
@@ -262,9 +263,14 @@ local function NewRequire(query : string | ModuleScript, _fromInternal : boolean
 	local targetModuleData = FindModule(query)
 
 	if not targetModuleData then
-		error("Module "..(query :: string).." not found",3)
+		error("Module "..(query :: string).." not found", 3)
 	else
 		local firstRequire = false
+
+		-- Check if module is errored
+		if targetModuleData.State == "ERROR" and _fromInternal ~= true then
+			error("Module ".. targetModuleData.Path.. " has errored and cannot be required until fixed.", 3)
+		end
 
 		-- Check if module is already loaded
 		if targetModuleData.State == "INACTIVE" then
@@ -309,9 +315,14 @@ local function NewRequire(query : string | ModuleScript, _fromInternal : boolean
 		end)
 		
 		-- Require module and return
-		local toReturn = require(targetModuleData.Instance) --//TC: Same typechecking issue as above
+		local success, toReturn = pcall(function()
+			return require(targetModuleData.Instance) --//TC: Same typechecking issue as above
+		end)
 
-		if targetModuleData.State == "LOADING" then
+		if not success then
+			targetModuleData.State = "ERROR"
+			error(toReturn, 3)
+		elseif targetModuleData.State == "LOADING" then
 			print(3, targetModuleData.Path, "Took", string.format("%.4f", tick()-timeStart), "seconds to require.")
 			targetModuleData.State = "ACTIVE"
 		end
@@ -326,7 +337,7 @@ local function DoFirstRequire(moduleData : ModuleData)
 		return NewRequire(moduleData.Instance, true)
 	end)
 	if not success then
-		warn("Module", moduleData.Path, "failed to auto-load:", requiredData)
+		warn("Module", moduleData.Path, "failed to auto-load. Check output for error from:", moduleData.Instance:GetFullName())
 	end
 
 	local moduleParams = GetParamsFromRequiredData(requiredData)
@@ -407,6 +418,7 @@ function Eden:InitModules(initFirst : { string | ModuleScript }?)
 			end
 
 			print(2, "Finished requiring modules, starting init...")
+			local initThread = coroutine.running()
 			InitModulesPhaseInt = 2
 
 			-- Order the first requires before general init
@@ -433,7 +445,16 @@ function Eden:InitModules(initFirst : { string | ModuleScript }?)
 			-- Timer for long init times
 			local focusedModuleData = nil
 			local initTime = 0
-			local timerConnection = RunService.Heartbeat:Connect(function(deltaTime)
+			local statusConnection; statusConnection = RunService.Heartbeat:Connect(function(deltaTime)
+				-- Check if init thread is dead from error
+				local status = coroutine.status(initThread)
+				if status == "dead" and InitalizedModules == false then
+					statusConnection:Disconnect()
+					warn("Module", focusedModuleData.Path, "failed to :Init(). Error must be resolved or modules next in priority will not execute :Init()")
+					return
+				end
+
+				-- Check if module is taking too long to init
 				if focusedModuleData and initTime < CONFIG.LONG_INIT_TIMEOUT then
 					initTime += deltaTime
 					if initTime >= CONFIG.LONG_INIT_TIMEOUT then
@@ -451,12 +472,13 @@ function Eden:InitModules(initFirst : { string | ModuleScript }?)
 					print(3, moduleData.Path, "Took", string.format("%.4f", initTime), "seconds to :Init()")
 				end
 			end
-			timerConnection:Disconnect()
+
+			statusConnection:Disconnect()
 			InitalizedModules = true
 			InitModulesPhaseInt = 3
 
 			self.ModulesInitalizedEvent:Fire()
-			
+
 			print(2, "Initialization complete!")
 		end
 
