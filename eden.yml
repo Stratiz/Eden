@@ -1,0 +1,7 @@
+--- # This begins a YAML
+base: roblox
+
+globals:
+  shared: # Eden sets shared's metatable, allowing you to call shared("Module")
+    args:
+      - type: string
