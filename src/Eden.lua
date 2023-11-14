@@ -93,10 +93,6 @@ local MODULE_PATHS = {
 		Instance = ReplicatedStorage:WaitForChild("SharedModules")
 	},
 	-- Custom paths
-	{
-		Alias = "Config",
-		Instance = ReplicatedStorage:WaitForChild("Config")
-	}
 }
 local SPECIAL_PARAMS = {
 	"Initialize",
