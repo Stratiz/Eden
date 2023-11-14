@@ -21,7 +21,10 @@ return {
     STATIC_DIRECTORY_NAME = "static",
     -- The name used to indicate a static directory ("Shared/static/Example")
 
-    SCRIPTS_AS_STATIC_DIRECTORY = true
+    SCRIPTS_AS_STATIC_DIRECTORY = true,
     -- If true, will treat scripts & module scripts as static directories
+
+    PCALL_NON_PRIORITY_MODULES = false
+    -- If true, all modules that error during :Init without an explicit priority will not break the init chain.
 
 }

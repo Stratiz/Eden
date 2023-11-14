@@ -3,7 +3,7 @@
 	Stratiz
 	Created on 09/06/2022 @ 21:50
 	Updated on 2/24/2023 @ 02:18
-	Version: 1.0.0
+	Version: 1.0.1
 	
 	Description:
 		Module aggregator for Eden.
@@ -52,6 +52,7 @@ type ModuleData = {
 	RequiredBy: { ModuleData },
 	Static : boolean,
 	AutoInitData: {
+		HasExplicitPriority : boolean,
 		Priority : number,
 		Init: (self : any?) -> ()?,
 		RequiredData : any?,
@@ -92,6 +93,10 @@ local MODULE_PATHS = {
 		Instance = ReplicatedStorage:WaitForChild("SharedModules")
 	},
 	-- Custom paths
+	{
+		Alias = "Config",
+		Instance = ReplicatedStorage:WaitForChild("Config")
+	}
 }
 local SPECIAL_PARAMS = {
 	"Initialize",
@@ -261,6 +266,7 @@ local function NewRequire(query : string | ModuleScript, _fromInternal : boolean
 	end
 
 	local targetModuleData = FindModule(query)
+	local currentThread = coroutine.running()
 
 	if not targetModuleData then
 		error("Module "..(query :: string).." not found", 3)
@@ -268,8 +274,29 @@ local function NewRequire(query : string | ModuleScript, _fromInternal : boolean
 		local firstRequire = false
 
 		-- Check if module is errored
+		local function onRequestedError()
+			local requirerEnv = getfenv(0)
+			local requirer = requirerEnv.script
+			local requirerModuleData = FindModule(requirer)
+
+			if requirerModuleData then
+				if requirerModuleData.State == "ERROR" then
+					return
+				end
+				requirerModuleData.State = "ERROR"
+			end
+
+			warn("Module ".. (requirerModuleData and requirerModuleData.Path or requirer.Name) .. " cannot continue until ".. targetModuleData.Path .." is fixed")
+
+			if coroutine.isyieldable() then
+				coroutine.yield(currentThread) -- NOTE: Yeild instead of error to prevent output spam from stack traces.
+			else
+				error("Attempted to require an errored module", 3)
+			end
+		end
+
 		if targetModuleData.State == "ERROR" and _fromInternal ~= true then
-			error("Module ".. targetModuleData.Path.. " has errored and cannot be required until fixed.", 3)
+			onRequestedError()
 		end
 
 		-- Check if module is already loaded
@@ -279,7 +306,6 @@ local function NewRequire(query : string | ModuleScript, _fromInternal : boolean
 		end
 
 		-- Start loading timer
-		local currentThread = coroutine.running()
 		local timeStart = tick()
 		task.spawn(function()
 			while targetModuleData.State == "LOADING" do
@@ -312,6 +338,10 @@ local function NewRequire(query : string | ModuleScript, _fromInternal : boolean
 					break
 				end
 			end
+
+			if targetModuleData.State == "ERROR" and _fromInternal ~= true then
+				onRequestedError()
+			end
 		end)
 		
 		-- Require module and return
@@ -321,7 +351,7 @@ local function NewRequire(query : string | ModuleScript, _fromInternal : boolean
 
 		if not success then
 			targetModuleData.State = "ERROR"
-			error(toReturn, 3)
+			onRequestedError()
 		elseif targetModuleData.State == "LOADING" then
 			print(3, targetModuleData.Path, "Took", string.format("%.4f", tick()-timeStart), "seconds to require.")
 			targetModuleData.State = "ACTIVE"
@@ -344,6 +374,7 @@ local function DoFirstRequire(moduleData : ModuleData)
 	if type(requiredData) == "table" and moduleParams.Initialize ~= false then
 
 		moduleData.AutoInitData = {
+			HasExplicitPriority = moduleParams.Priority ~= nil,
 			Priority = moduleParams.Priority or 0,
 			Init = rawget(requiredData, "Init"),
 			RequiredData = requiredData
@@ -468,7 +499,15 @@ function Eden:InitModules(initFirst : { string | ModuleScript }?)
 				if moduleData.AutoInitData.Init then
 					focusedModuleData = moduleData
 					initTime = 0
-					moduleData.AutoInitData.Init(moduleData.AutoInitData.RequiredData)
+					if moduleData.AutoInitData.HasExplicitPriority == true or CONFIG.PCALL_NON_PRIORITY_MODULES == false then
+						moduleData.AutoInitData.Init(moduleData.AutoInitData.RequiredData)
+					else
+						local success, initError = pcall(moduleData.AutoInitData.Init, moduleData.AutoInitData.RequiredData)
+						if not success then
+							warn("Module", moduleData.Path, "failed to :Init() because:\n", initError)
+						end
+					end
+					
 					print(3, moduleData.Path, "Took", string.format("%.4f", initTime), "seconds to :Init()")
 				end
 			end

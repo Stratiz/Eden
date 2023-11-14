@@ -228,6 +228,9 @@ In the root directory of your repository, there should always be a `Eden.config.
 
   return module
   ```
+- **PCALL_NON_PRIORITY_MODULES** : `boolean` *(Default: false)*
+
+  If true, all modules that error during `:Init()` without an explicit Priority parameter set will not break the init chain. Default is set to false as `:Init()` errors become less visible in the output.
 
 # Installation
 
