@@ -3,7 +3,9 @@
 
 # [The Eden Framework](https://github.com/Stratiz/Eden) 
 
-Eden is a lightweight & flexible module aggregator framework designed to grow with you. Populate the framework with your own utilities, modules from other frameworks, etc., and Eden will take it with ease.
+Eden is a lightweight & flexible module loader designed to grow with you. Populate the framework with your own utilities, modules from other frameworks, etc., and Eden will take it with ease.
+
+Eden handles loading and initializing your modules, and you require modules the normal way, so autocomplete, type checking and linting keep working.
 
 The primary goal of Eden is to eliminate the common hassle when it comes to over-complicated Roblox frameworks. Eden keeps it lean and straightforward by providing a flexible, essentialistic foundation for you and your team to build your project in a rapid iteration environment like Roblox.
 
@@ -13,6 +15,8 @@ Eden is designed to be used with Rojo but can easily be implemented without it.
 - [The Eden Framework](#the-eden-framework)
 	- [Table of Contents](#table-of-contents)
 - [Features](#features)
+- [Requiring modules](#requiring-modules)
+	- [Why doesn't Eden replace `require()`?](#why-doesnt-eden-replace-require)
 - [Parameters](#parameters)
 - [Guidelines](#guidelines)
 - [Eden Module](#eden-module)
@@ -35,15 +39,17 @@ Due to Eden's flexible design, the learning curve is minimal and is perfect for 
 
 Eden is designed to be as predictable as possible, meaning there's no room for unexpected behavior or tedious edge cases.
 
-- **Module Aggregation for simple requiring**
+- **Module Aggregation**
 
-Eden is a module aggregator framework, which means it takes all of the modules in the provided directories and caches them so they can be accessed with less hassle.
+Eden takes every module in the provided directories and loads them for you on startup, so you never have to wire up a manual list of what to load and in what order.
 
-A module require in Eden looks like this: `shared("ModuleName")`
+Requiring stays completely normal:
 
-`_G` and `shared` tend to be very controversial within Roblox. In this case, `shared()` is used as an alternate `require()` function, so you don't need to require the require module in every module in the game.
+```lua
+local MyModule = require(ReplicatedStorage.SharedModules.MyModule)
+```
 
-You can also require instances directly with `shared()` if needed. Example: `shared(script.Folder.Module)` 
+See [Requiring modules](#requiring-modules) for the reasoning.
 
 - **Auto Initialization**
 
@@ -51,20 +57,45 @@ Another helpful feature that exists in Eden is the auto initialization of functi
 
 By putting an `:Init()` method in your module, Eden will automatically call this method in the order you specify by defining an optional `Priority` variable in the module table when the game starts. The higher the priority number, the sooner the module will run. You can disable this functionality with the `Static` directory feature (see guidelines below) or with the `Initialize` parameter.
 
-- **Cyclical module detection**
-
-While Roblox attempts to detect cyclicals between modules, it fails in some conditions. Especially in the presence of as yeilding function such as `:WaitForChild()`, which results in a infinite hang with no warning. Silent cyclical hangs are bothersome, as they cause your game to break silently and take time to find. 
-Thankfully, Eden will automatically detect and warn you if this occurs.
-
-NOTE: Due to current Luau limitations, a module that surpasses the `LOAD_TIMEOUT` time will lose any Luau optimizations during that run session.
-
 - **Hang detection**
 
-Sometimes code can infinitely yield silently, and it's essential to know when this issue occurs. Therefore, Eden monitors the execution times of your modules and will warn you if one is taking too long.
+Sometimes code yields forever, and does so silently. Roblox's own cyclical require detection misses this case when a yielding call like `:WaitForChild()` is involved, so your game breaks with nothing in the output to explain it.
+
+Eden times the load of every module it requires and the `:Init()` of every module it initializes, then warns you by name when one takes too long. That covers the usual suspects: infinite yields and the cyclical requires Roblox lets slip through.
+
+- **Failures stay contained**
+
+A module that errors while loading doesn't take the rest of your game down with it. Eden reports which module failed and carries on loading and initializing everything else.
 
 - **Flexible file structure**
 
 Eden doesn't care how you organize your modules. You can put all of your modules directly under your root folders or create infinite subfolders. Eden is built to be flexible; make it your own!
+
+# Requiring modules
+
+With `require()`
+
+```lua
+local ReplicatedStorage = game:GetService("ReplicatedStorage")
+
+local MyModule = require(ReplicatedStorage.SharedModules.MyModule)
+```
+
+You only require the Eden module itself when you need one of [its methods](#eden-module):
+
+```lua
+local Eden = require(ReplicatedStorage:WaitForChild("SharedModules"):WaitForChild("Eden"))
+
+Eden.ModulesInitializedEvent:Wait()
+```
+
+## Why doesn't Eden replace `require()`?
+
+Because a require that takes a name can't be typed.
+
+Earlier versions of Eden let you write `shared("MyModule")` or `Eden("MyModule")`. It read nicely, but Luau has no way to resolve a runtime string back to a module, so **every** module you pulled in that way came back as `any`. No autocomplete, no go-to-definition, no type errors when you misused a return value, and `--!strict` reduced to noise. On top of that, `shared` is a context-wide global that any plugin or third party module can overwrite, and Selene rejects calling it without a custom standard library file.
+
+The only ways to make a string require typed are to generate an index module or a set of overloaded function type declarations at build time. Both need a build step that reruns whenever a file moves, and neither works in the Studio-native workflow Eden supports. A plain `require()` gets you the same module with none of that, so that's what Eden uses.
 
 # Parameters
 
@@ -103,15 +134,7 @@ return module
 Eden is designed to have as few quirks as possible while giving you a reliable foundation to work on.
 
 
-1. **Modules with the same name should be required by a path string instead of its raw name**
-
-If you have two modules in the project with the same name (except for each one being in different run contexts), Eden will warn you that it doesn't know which one to use. To resolve this, reference the file by its file path in the project.
-
-
-Example: `shared("Client/Framework/ModuleName")`
-
-
-2. **Modules that you don't want to be required on runtime must be under a directory named "static"**
+1. **Modules that you don't want to be required on runtime must be under a directory named "static"**
 
 
 By default, Eden will require and preload all of the modules under the projects folders when the game starts, if you have a module that isn't supportive of this behavior, make it a descendant of a folder named `Static` (not case-sensitive).
@@ -119,43 +142,37 @@ By default, Eden will require and preload all of the modules under the projects 
 
 For example, I want module X not to be required on game start because I will require it separately later. I can put it under a folder called `Static` under any of the root project directories such as `Client` and it will not be required. This is also great for things like `roact`, which has a crazy amount of unused modules.
 
-3. **To use Eden inside of non-module scripts, you cannot reliably use `shared()`**
-
-
-If you want to use Eden inside of a script that is not a module, you have to require the module directly.
-
-
-```lua
-local ReplicatedStorage = game:GetService("ReplicatedStorage")
-local require = require(ReplicatedStorage:WaitForChild("SharedModules"):WaitForChild("Eden"))
-
-require("ModuleName")
-```
-4. **If you have a module that contains variables the same as that of an optional param, Eden will pick up on it and try to use it.**
+2. **If you have a module that contains variables the same as that of an optional param, Eden will pick up on it and try to use it.**
 
 For example, if you imported a module into Eden that has a `Initialize` variable in the returned module table, Eden will try to use it, which could cause an error. In this case, you should use the ***InitParams*** structure seen [above](#parameters). Alternatively, you could put this file in a static directory and Eden won't put it through the internal first-time initialization process.
+
+3. **Don't rely on another module's `:Init()` having run inside your own module body.**
+
+Eden requires every module before it initializes any of them, so at the time your module body runs, nothing has been `:Init()`'d yet. Use `Priority` to order the `:Init()` calls, or wait on [`.ModulesInitializedEvent`](#properties).
 
 # Eden Module
 
 The primary Eden module comes with some useful public methods to interact with the framework. 
-To access the Eden module, you could either require it the same way as any other module via `shared("Eden")` or by requiring the instance directly. (ReplicatedStorage.SharedModules.Eden)
+To access the Eden module, require it directly: `require(ReplicatedStorage.SharedModules.Eden)`.
 ## Methods
 - **:AreModulesInitialized() : `boolean`**
   
 	Returns whether or not all modules have been initialized. Good for loading screens.
 
-- **:AddModulesToInit(*addModules* : `{ string | ModuleScript }`)**
+- **:AddModulesToInit(*addModules* : `{ Instance }`)**
   
-	Adds modules to the initialization queue that otherwise wouldnt be initialized. Good for conditionally enabling/loading static modules for things like loading modules
+	Adds modules to the initialization queue that otherwise wouldn't be initialized. Good for conditionally enabling/loading static modules for things like loading modules
 	only under a specific placeId.
 
-- **:InitModules(*initFirst* : `{string | ModuleScript}?`)**
+	Non-ModuleScripts are ignored, so you can pass `script:GetChildren()` directly.
+
+- **:InitModules(*initFirst* : `{ Instance }?`)**
   
 	Fires by default in the ServerLoader and ClientLoader scripts.
 	Initializes all modules in the context, with the option of explicitly defining what modules will `:Init()` first with absolute priority.
 
 ## Properties
-- **.ModulesInitalizedEvent** : `Signal`
+- **.ModulesInitializedEvent** : `Signal`
   
 	A signal that fires once all the modules have finished initializing.
 
@@ -180,7 +197,7 @@ To access the Eden module, you could either require it the same way as any other
 
 	- **:Wait() -> `any`**
 
-		Yeilds until the Signal is Fire()'d
+		Yields until the Signal is Fire()'d
 
 # Config
 
@@ -195,21 +212,17 @@ In the root directory of your repository, there should always be a `Eden.config.
 
   If true, will print debug messages to the in-game console. Warnings and errors will always be printed to the in-game console regardless of the state of this option.
 
-- **FIND_TIMEOUT** : `number` *(Default: 3)*
-  
-  The max amount time in seconds Eden should wait for a module to exist.
-
 - **LONG_LOAD_TIMEOUT** : `number` *(Default: 5)*
 
-  The amount of time in seconds Eden should wait before warning and running cyclical checks on modules involved in the call stack.
+  The amount of time in seconds Eden should wait before warning that a module is taking a long time to load.
 
 - **LONG_INIT_TIMEOUT** : `number` *(Default: 8)*
 
   The amount of time in seconds Eden should wait before warning that a modules `:Init()` function is taking a long time.
 
-- **PATH_SEPERATOR** : `string` *(Default: "/")*
+- **PATH_SEPARATOR** : `string` *(Default: "/")*
 
-  The character which is used to seperate names in a path. For example, if your path serpator is "/", then your requires will be `shared("Server/Example")`, but if its ".", then your requires would be `shared("Server.Example")`.
+  The character Eden uses to separate names when it labels a module in the output, for example `Server/Example`. Display only.
 
 - **STATIC_DIRECTORY_NAME** : `string` *(Default: "static")*
   
@@ -217,13 +230,15 @@ In the root directory of your repository, there should always be a `Eden.config.
 
 - **SCRIPTS_AS_STATIC_DIRECTORY** : `boolean` *(Default: true)*
 
-  When true, Eden will treat any type of script instance as a static directory, meaning decendant modules of a module or script wont be automatically required and :Init()'ed
+  When true, Eden will treat any type of script instance as a static directory, meaning descendant modules of a module or script won't be automatically required and :Init()'ed
   
   In the event where you want a module's child modules to go through the automatic Init, you could pass them through `:AddModulesToInit()`
   ```lua
+  local ReplicatedStorage = game:GetService("ReplicatedStorage")
+  local Eden = require(ReplicatedStorage.SharedModules.Eden)
+
   local module = {}
-  
-  local Eden = shared("Eden")
+
   Eden:AddModulesToInit(script:GetChildren())
 
   return module
@@ -239,6 +254,8 @@ In the root directory of your repository, there should always be a `Eden.config.
 If you're using GitHub workflow (with or without Rojo), you can start using Eden by pressing "Use this template" at the top of the repository.
 
 ## Studio
+
+Eden is designed for users that use external IDEs such as VSCode, but if you'd like to run it in a native studio workflow, follow the instructions below:
 
 If you're not using a GitHub workflow and want to use Eden in native Roblox Studio, run the following loader code in the studio **Command Bar (View > Command Bar)** and it will populate studio with the correct modules. You can also use the manual installation guide:
 
@@ -262,31 +279,32 @@ local function HttpGet(url : string)
 end
 
 local function MakeFileFromGithub(filename, url, alias)
-	print("Fetching", filename)
-	
 	local FileNameParts = string.split(filename, ".")
 	local TrueFileName = FileNameParts[1]
 
 	table.remove(FileNameParts, 1)
 
-	local FileType = table.concat(FileNameParts, ".")
-	local FileContent = HttpGet(url)
-	
-	 
-	local ScriptInstance
-	if FileNameParts[#FileNameParts] == "lua" then
-		if FileNameParts[#FileNameParts - 1] == "server" then
-			ScriptInstance = Instance.new("Script")
-		elseif FileNameParts[#FileNameParts - 1] == "client" then
-			ScriptInstance = Instance.new("LocalScript")
-		else
-			ScriptInstance = Instance.new("ModuleScript")
-		end
+	-- Skip anything that isn't lua source (.gitkeep, .md, etc)
+	if FileNameParts[#FileNameParts] ~= "lua" then
+		return nil
 	end
-	
+
+	print("Fetching", filename)
+
+	local FileContent = HttpGet(url)
+
+	local ScriptInstance
+	if FileNameParts[#FileNameParts - 1] == "server" then
+		ScriptInstance = Instance.new("Script")
+	elseif FileNameParts[#FileNameParts - 1] == "client" then
+		ScriptInstance = Instance.new("LocalScript")
+	else
+		ScriptInstance = Instance.new("ModuleScript")
+	end
+
 	ScriptInstance.Name = alias or TrueFileName
 	ScriptInstance.Source = FileContent
-	
+
 	return ScriptInstance
 end
 
@@ -296,7 +314,10 @@ local function GetGithubFolder(path : string)
 		if TargetFile.type == "dir" then
 			GetGithubFolder(TargetFile.path).Parent = NewFolder
 		elseif TargetFile.type == "file" then
-			MakeFileFromGithub(TargetFile.name, TargetFile.download_url).Parent = NewFolder
+			local NewFile = MakeFileFromGithub(TargetFile.name, TargetFile.download_url)
+			if NewFile then
+				NewFile.Parent = NewFolder
+			end
 		end
 	end
 	
@@ -365,16 +386,18 @@ print("Done!")
 4. In studio, create a folder under `StarterPlayer -> StarterPlayerScripts` called "ClientModules", this folder is where you will put all of your client code **modules**.
 
 5. In the studio, create a folder under `ReplicatedStorage` called "SharedModules", this folder is where you will put all of your code that needs to be shared between the client and server.
+
+6. In studio, create a folder under `ReplicatedStorage` called "Packages", this folder is where your external dependencies (Wally, etc) go. **This folder is required even if you have no dependencies**
    
-6. In studio, copy and paste the contents of `Eden.lua` into a ModuleScript called "Eden" under "SharedModules" folder in `ReplicatedStorage`
+7. In studio, copy and paste the contents of `Eden.lua` into a ModuleScript called "Eden" under "SharedModules" folder in `ReplicatedStorage`
    
-7. In studio, copy and paste the contents of `Eden.config.lua` into a ModuleScript called "EdenConfig" under the "Eden" module in "SharedModules"
+8. In studio, copy and paste the contents of `Eden.config.lua` into a ModuleScript called "EdenConfig" under the "Eden" module in "SharedModules"
 
-8. In studio, copy and paste the contents of `ServerLoader.server.lua` into a Script called "ServerLoader" directly under `ServerScriptService`
+9. In studio, copy and paste the contents of `ServerLoader.server.lua` into a Script called "ServerLoader" directly under `ServerScriptService`
 
-9. In studio, copy and paste the contents of `ClientLoader.client.lua` into a Script called "ClientLoader" directly under `ReplicatedFirst`
+10. In studio, copy and paste the contents of `ClientLoader.client.lua` into a Script called "ClientLoader" directly under `ReplicatedFirst`
 
-10. Done!
+11. Done!
 
 </details>
 
@@ -392,6 +415,8 @@ If you're using Eden without a GitHub workflow follow these important guidelines
 
 3. Client modules will go under `StarterPlayer -> StarterPlayerScripts -> ClientModules`
 
+4. External dependencies (Wally, etc) go under `ReplicatedStorage -> Packages`. Its contents are always treated as [static](#guidelines). This folder must exist, but it can be empty.
+
 
 ## Code
 
@@ -407,11 +432,10 @@ local Example = {
 }
 
 --= Dependencies =--
+local ReplicatedStorage = game:GetService("ReplicatedStorage")
 
--- If the module has a unique name you don't need to use the path and you can require by name "Example".
-
---"Shared/Example" is the path to the module. This is the same as the path in the file explorer.
-local OtherExampleModule = shared("Shared/Example")
+-- Modules are required normally, so you keep autocomplete and type checking.
+local OtherExampleModule = require(ReplicatedStorage.SharedModules.Example)
 
 --= Initializers =--
 function Example:Init() -- This function will be called when the module is initialized. This is also optional.

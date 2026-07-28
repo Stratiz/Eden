@@ -2,32 +2,30 @@
 	Eden.lua
 	Stratiz
 	Created on 09/06/2022 @ 21:50
-	Updated on 2/24/2023 @ 02:18
-	Version: 1.0.1
-	
+	Updated on 7/27/2026 @ 22:00
+	Version: 2.0.0
+
 	Description:
-		Module aggregator for Eden.
-	
+		Module loader for Eden.
+
 	Documentation:
-		Instead of require(), Eden uses shared("moduleName") this should only be done inside of module scripts.
-		Ideally, your project should only contain module scripts.
+		Eden requires and initializes every module in your project directories for you. Modules require
+		each other with plain require(), so Luau tooling (luau-lsp, selene, Studio script analysis) keeps
+		full type information:
 
-		To require modules in script instances, you'll need to directly require the module with the following code:
+		local MyModule = require(ReplicatedStorage.SharedModules.MyModule)
 
-		local ReplicatedStorage = game:GetService("ReplicatedStorage")
-		local require = require(ReplicatedStorage:WaitForChild("SharedModules"):WaitForChild("Eden"))
-
-		.ModulesInitalizedEvent : Signal (See signal type export)
+		.ModulesInitializedEvent : Signal (See signal type export)
 			Signal that fires when all modules have been initialized.
 
 		:AreModulesInitialized() : boolean
 			Returns whether or not all modules have been initialized. Good for loading screens.
-		
-		:AddModulesToInit(addModules : { string | ModuleScript })
-			Adds modules to the initialization queue that otherwise wouldnt be initialized. Good for conditionally enabling/loading static modules for things like loading modules
-			only under a specific placeId.
-			
-		:InitModules(initFirst: {string | ModuleScript}?)
+
+		:AddModulesToInit(addModules : { Instance })
+			Adds modules to the initialization queue that otherwise wouldn't be initialized. Good for conditionally enabling/loading static modules for things like loading modules
+			only under a specific placeId. Non-ModuleScripts are ignored, so script:GetChildren() can be passed directly.
+
+		:InitModules(initFirst : { Instance }?)
 			Fires by default in the ServerLoader and ClientLoader scripts.
 			Initializes all modules in the context, with the option of explicitly defining what modules load first.
 --]]
@@ -42,19 +40,18 @@ local StarterPlayer = game:GetService("StarterPlayer")
 local Players = game:GetService("Players")
 
 --= Types =--
-type ModuleState = "INACTIVE" | "ACTIVE" | "LOADING"
+type ModuleState = "INACTIVE" | "ACTIVE" | "LOADING" | "ERROR"
 
 type ModuleData = {
 	Name: string,
 	Instance: ModuleScript,
 	Path: string,
 	State : ModuleState,
-	RequiredBy: { ModuleData },
 	Static : boolean,
 	AutoInitData: {
-		HasExplicitPriority : boolean,
 		Priority : number,
-		Init: (self : any?) -> ()?,
+		Init: ((self : any?) -> ())?,
+		HasExplicitPriority : boolean?,
 		RequiredData : any?,
 		First : boolean?
 	}
@@ -94,6 +91,14 @@ local MODULE_PATHS = {
 	},
 	-- Custom paths
 }
+
+-- External dependency directories (Wally, etc). Their direct children are always aggregated as static modules.
+local PACKAGE_PATHS : { PathData } = {
+	{
+		Alias = "Packages",
+		Instance = ReplicatedStorage:WaitForChild("Packages")
+	},
+}
 local SPECIAL_PARAMS = {
 	"Initialize",
 	"Priority"
@@ -101,8 +106,9 @@ local SPECIAL_PARAMS = {
 
 --= Variables =--
 local Modules : { ModuleData } = {}
+local ModuleFromInstance : { [Instance] : ModuleData } = {}
 local ModuleCount = 0
-local InitalizedModules = false
+local InitializedModules = false
 local InitModulesPhaseInt = 0
 local AddToInitProcessCount = 0
 local NativePrint = print
@@ -142,7 +148,7 @@ local function MakeSignal() : Signal
 	return newSignal
 end
 
--- Gets the path string for a ModuleScript
+-- Gets the path string for a ModuleScript. Only used to label modules in the output.
 local function GetModulePath(pathData : PathData, module : ModuleScript) : string
 	local currentParent : Instance = module
 	local orderedInstanceTable = {}
@@ -150,30 +156,31 @@ local function GetModulePath(pathData : PathData, module : ModuleScript) : strin
 		table.insert(orderedInstanceTable, 1, currentParent.Name)
 		currentParent = currentParent.Parent or game
 	until currentParent == pathData.Instance or currentParent == game
-	return pathData.Alias..(CONFIG.PATH_SEPERATOR)..table.concat(orderedInstanceTable, CONFIG.PATH_SEPERATOR)
+	return pathData.Alias..(CONFIG.PATH_SEPARATOR)..table.concat(orderedInstanceTable, CONFIG.PATH_SEPARATOR)
 end
 
 -- Adds a module to the Modules table
-local function AddModule(pathData : PathData, module : ModuleScript, isStatic : boolean) : boolean
-	if module:IsA("ModuleScript") then
-		local newModuleData = {
-			Instance = module,
-			Name = module.Name,
-			Path = GetModulePath(pathData, module),
-			State = "INACTIVE" :: ModuleState,
-			RequiredBy = {},
-			Static = isStatic,
-			AutoInitData = {
-				Priority = 0
-			}
-		}
-		ModuleCount += 1
-
-		table.insert(Modules, newModuleData)
-		return true
-	else
+local function AddModule(pathData : PathData, module : Instance, isStatic : boolean) : boolean
+	if not module:IsA("ModuleScript") or module == script then
 		return false
 	end
+
+	local newModuleData : ModuleData = {
+		Instance = module,
+		Name = module.Name,
+		Path = GetModulePath(pathData, module),
+		State = "INACTIVE" :: ModuleState,
+		Static = isStatic,
+		AutoInitData = {
+			Priority = 0
+		}
+	}
+
+	ModuleCount += 1
+	table.insert(Modules, newModuleData)
+	ModuleFromInstance[module] = newModuleData
+
+	return true
 end
 
 -- Determines if an instance is a static directory
@@ -187,21 +194,6 @@ local function IsObjectStaticDirectory(object : Instance) : boolean
 	end
 
 	return false
-end
-
--- Returns a string of the circular dependency tree if one exists.
-local function FindCycle(requirerModuleData : ModuleData, targetModuleData : ModuleData, _cycleString : string?) : string?
-	local currentCycleString = requirerModuleData.Path.." -> "..(_cycleString or targetModuleData.Path)
-
-	for _, requirer in requirerModuleData.RequiredBy do
-		if targetModuleData == requirer then
-			return requirer.Path.." -> "..currentCycleString
-		else
-			return FindCycle(requirer, targetModuleData, currentCycleString)
-		end
-	end
-
-	return nil
 end
 
 -- Gets the custom module parameters and returns them as a dictionary
@@ -224,151 +216,37 @@ local function GetParamsFromRequiredData(requiredData : any) : { [string] : any 
 	return params
 end
 
--- Returns the module data object for a module if the query is found
-local function FindModule(query : string | ModuleScript, _currentTimeout : number?) : ModuleData?
-	local found = {}
-
-	for _, moduleData in ipairs(Modules) do
-		if moduleData.Name == query or moduleData.Path == query or moduleData.Instance == query then
-			table.insert(found, moduleData)
-		end
-	end
-
-	if #found == 0 then
-		local currentTimeout = _currentTimeout or 0
-		local currentModuleCount = ModuleCount
-
-		repeat
-			currentTimeout += task.wait()
-
-			if currentModuleCount ~= ModuleCount then
-				return FindModule(query :: string, currentTimeout)
-			end
-		until currentTimeout >= CONFIG.FIND_TIMEOUT
-
-		return nil
-	elseif #found > 1 and type(query) == "string" then
-		warn("Multiple modules found with the name '"..query.."'. To clarify, please use the path instead. "..string.gsub("(ex: Shared/Framework/Module)", "/", CONFIG.PATH_SEPERATOR))
-	end
-
-	return found[1]
-end
-
--- The main require function that overrides the default require function
-local function NewRequire(query : string | ModuleScript, _fromInternal : boolean?) : any
-	-- Default require functionality
-	if typeof(query) == "Instance" and _fromInternal ~= true then
-		return require(query :: ModuleScript) --//TC: Luau typechecking doesnt like this because its not an explicit path, which is why we wont use !strict
-	end
-
-	local targetModuleData = FindModule(query)
-	local currentThread = coroutine.running()
-
-	if not targetModuleData then
-		error("Module "..(query :: string).." not found", 3)
-	else
-		local firstRequire = false
-
-		-- Check if module is errored
-		local function onRequestedError()
-			local requirerEnv = getfenv(0)
-			local requirer = requirerEnv.script
-			local requirerModuleData = FindModule(requirer)
-
-			if requirerModuleData then
-				if requirerModuleData.State == "ERROR" then
-					return
-				end
-				requirerModuleData.State = "ERROR"
-			end
-
-			warn("Module ".. (requirerModuleData and requirerModuleData.Path or requirer.Name) .. " cannot continue until ".. targetModuleData.Path .." is fixed")
-
-			if coroutine.isyieldable() then
-				coroutine.yield(currentThread) -- NOTE: Yeild instead of error to prevent output spam from stack traces.
-			else
-				error("Attempted to require an errored module", 3)
-			end
-		end
-
-		if targetModuleData.State == "ERROR" and _fromInternal ~= true then
-			onRequestedError()
-		end
-
-		-- Check if module is already loaded
-		if targetModuleData.State == "INACTIVE" then
-			targetModuleData.State = "LOADING"
-			firstRequire = true
-		end
-
-		-- Start loading timer
-		local timeStart = tick()
-		task.spawn(function()
-			while targetModuleData.State == "LOADING" do
-				task.wait()
-				if tick() - timeStart > CONFIG.LONG_LOAD_TIMEOUT then
-					-- Disabling Luau optimizations for the requiring module to check for cyclical dependencies.
-					if _fromInternal ~= true then
-						local requirerEnv = getfenv(0)
-						local requirer = nil
-						for _, moduleData in Modules do
-							if moduleData.Instance == requirerEnv.script then
-								requirer = moduleData
-								break
-							end
-						end
-						if requirer then
-							table.insert(targetModuleData.RequiredBy, requirer)
-							local cycleString = FindCycle(requirer, targetModuleData)
-							if cycleString then
-								warn("Cyclical require detected: ("..cycleString..").\nPlease resolve this issue at",string.gsub(debug.traceback(currentThread,"",3),"\n",""))
-								return
-							end
-						end
-					end
-					
-					-- Displaying warning only once by checking if its the first require
-					if firstRequire then
-						warn("Module", targetModuleData.Path, "is taking a long time to load.")
-					end
-					break
-				end
-			end
-
-			if targetModuleData.State == "ERROR" and _fromInternal ~= true then
-				onRequestedError()
-			end
-		end)
-		
-		-- Require module and return
-		local success, toReturn = pcall(function()
-			return require(targetModuleData.Instance) --//TC: Same typechecking issue as above
-		end)
-
-		if not success then
-			targetModuleData.State = "ERROR"
-			onRequestedError()
-		elseif targetModuleData.State == "LOADING" then
-			print(3, targetModuleData.Path, "Took", string.format("%.4f", tick()-timeStart), "seconds to require.")
-			targetModuleData.State = "ACTIVE"
-		end
-
-		return toReturn
-	end
-end
-
--- Do the first require for a module
+-- Requires a module for the first time and reads its auto-init parameters.
+-- Never raises: a module that fails to load must not stop the rest of the flow.
 local function DoFirstRequire(moduleData : ModuleData)
-	local success, requiredData = pcall(function()
-		return NewRequire(moduleData.Instance, true)
+	moduleData.State = "LOADING"
+
+	local timeStart = tick()
+
+	-- Watch for module bodies that never finish (infinite yields, cyclical requires, etc)
+	task.spawn(function()
+		while moduleData.State == "LOADING" do
+			if tick() - timeStart >= CONFIG.LONG_LOAD_TIMEOUT then
+				warn("Module", moduleData.Path, "is taking a long time to load. This is usually caused by an infinite yield or a cyclical require in the module body.")
+				break
+			end
+			task.wait()
+		end
 	end)
+
+	local success, requiredData = pcall(require, moduleData.Instance)
+
 	if not success then
-		warn("Module", moduleData.Path, "failed to auto-load. Check output for error from:", moduleData.Instance:GetFullName())
+		moduleData.State = "ERROR"
+		warn("Module", moduleData.Path, "failed to load. Check output for the error from:", moduleData.Instance:GetFullName())
+		return
 	end
+
+	moduleData.State = "ACTIVE"
+	print(3, moduleData.Path, "Took", string.format("%.4f", tick() - timeStart), "seconds to require.")
 
 	local moduleParams = GetParamsFromRequiredData(requiredData)
 	if type(requiredData) == "table" and moduleParams.Initialize ~= false then
-
 		moduleData.AutoInitData = {
 			HasExplicitPriority = moduleParams.Priority ~= nil,
 			Priority = moduleParams.Priority or 0,
@@ -379,162 +257,158 @@ local function DoFirstRequire(moduleData : ModuleData)
 end
 
 --= API Methods =--
-Eden.ModulesInitalizedEvent = MakeSignal()
+Eden.ModulesInitializedEvent = MakeSignal()
 
 -- Getter function for InitializedModules boolean
 function Eden:AreModulesInitialized() : boolean
-	return InitalizedModules
+	return InitializedModules
 end
 
 -- Makes static modules active by adding them to the Init flow.
-function Eden:AddModulesToInit(addModules : { string | ModuleScript })
+function Eden:AddModulesToInit(addModules : { Instance })
 	addModules = addModules or {}
 
-	if InitalizedModules == false and InitModulesPhaseInt < 2 then
-		AddToInitProcessCount += 1
-
-		local addedCount = 0
-		for _, moduleQuery in ipairs(addModules) do
-			if type(moduleQuery) ~= "userdata" or moduleQuery:IsA("ModuleScript") then
-				task.spawn(function()
-					local moduleData = FindModule(moduleQuery)
-	
-					if moduleData then
-						moduleData.Static = false
-						DoFirstRequire(moduleData)
-					else
-						warn("Failed to add module to init flow:", moduleQuery, "not found in Eden directory. Please verify the spelling and/or path.")
-					end
-
-					addedCount += 1
-				end)
-			else 
-				warn("Failed to add module to init flow: Instance", moduleQuery:GetFullName(), "is not a valid module query.")
-				addedCount += 1
-			end
-		end
-
-		while #addModules > addedCount do
-			task.wait()
-		end
-
-		AddToInitProcessCount -= 1
-	else
+	if InitializedModules == true or InitModulesPhaseInt >= 2 then
 		error("Cannot add modules to Init flow after :InitModules() has finished all module requires.")
 	end
+
+	AddToInitProcessCount += 1
+
+	local pending = #addModules
+	local completed = 0
+
+	for _, moduleInstance in ipairs(addModules) do
+		task.spawn(function()
+			local moduleData = if typeof(moduleInstance) == "Instance" then ModuleFromInstance[moduleInstance] else nil
+
+			if moduleData then
+				if moduleData.State == "INACTIVE" then
+					moduleData.Static = false
+					DoFirstRequire(moduleData)
+				end
+			elseif typeof(moduleInstance) ~= "Instance" then
+				warn("Failed to add module to init flow: expected a ModuleScript, got", typeof(moduleInstance), "-", moduleInstance)
+			elseif moduleInstance:IsA("ModuleScript") then
+				warn("Failed to add module to init flow:", moduleInstance:GetFullName(), "is not inside an Eden module directory.")
+			end
+			-- Anything else is ignored silently, since script:GetChildren() commonly includes non-modules
+
+			completed += 1
+		end)
+	end
+
+	while completed < pending do
+		task.wait()
+	end
+
+	AddToInitProcessCount -= 1
 end
 
 -- Initializes all modules in the current context
-function Eden:InitModules(initFirst : { string | ModuleScript }?)
-	if InitalizedModules == false and InitModulesPhaseInt == 0 then
-		print(2, "Requiring modules...")
-		local requiring = #Modules
-		local initFirstArray = initFirst or {}
+function Eden:InitModules(initFirst : { Instance }?)
+	if InitializedModules == true or InitModulesPhaseInt > 0 then
+		error("You can only initialize modules once per context!")
+	end
 
-		InitModulesPhaseInt = 1
-		
-		local function tryFinalize()
-			requiring -= 1
-			if requiring > 0 then
-				return
-			end
+	InitModulesPhaseInt = 1
+	print(2, "Requiring modules...")
 
-			-- Wait for any modules that are being added to the init flow
-			while AddToInitProcessCount > 0 do
-				task.wait()
-			end
+	-- Require every non-static module in parallel so one yielding module body doesn't block the rest
+	local pending = 0
+	local completed = 0
 
-			print(2, "Finished requiring modules, starting init...")
-			local initThread = coroutine.running()
-			InitModulesPhaseInt = 2
-
-			-- Order the first requires before general init
-			for index, moduleQuery in ipairs(initFirstArray :: {any}) do
-				local moduleData = FindModule(moduleQuery)
-
-				if moduleData then
-					moduleData.AutoInitData.First = true
-					moduleData.AutoInitData.Priority = (#initFirstArray - index) + 1
-				else 
-					warn("Failed to prioritize module from initFirst table:", moduleQuery, "not found. Please verify the spelling and/or path.")
-				end
-			end
-
-			-- Sort Modules by priority
-			table.sort(Modules, function(a, b)
-				if a.AutoInitData.First == b.AutoInitData.First then
-					return a.AutoInitData.Priority > b.AutoInitData.Priority
-				else -- Force first modules are always first
-					return a.AutoInitData.First == true
-				end
+	for _, moduleData in ipairs(Modules) do
+		if moduleData.Static == false then
+			pending += 1
+			task.defer(function()
+				DoFirstRequire(moduleData)
+				completed += 1
 			end)
-
-			-- Timer for long init times
-			local focusedModuleData = nil
-			local initTime = 0
-			local statusConnection; statusConnection = RunService.Heartbeat:Connect(function(deltaTime)
-				-- Check if init thread is dead from error
-				local status = coroutine.status(initThread)
-				if status == "dead" and InitalizedModules == false then
-					statusConnection:Disconnect()
-					warn("Module", focusedModuleData.Path, "failed to :Init(). Error must be resolved or modules next in priority will not execute :Init()")
-					return
-				end
-
-				-- Check if module is taking too long to init
-				if focusedModuleData and initTime < CONFIG.LONG_INIT_TIMEOUT then
-					initTime += deltaTime
-					if initTime >= CONFIG.LONG_INIT_TIMEOUT then
-						warn("Module", focusedModuleData.Path, "is taking a long time to complete :Init()")
-					end
-				end
-			end)
-
-			-- Auto initalize modules
-			for _, moduleData in ipairs(Modules) do
-				if moduleData.AutoInitData.Init then
-					focusedModuleData = moduleData
-					initTime = 0
-					if moduleData.AutoInitData.HasExplicitPriority == true or CONFIG.PCALL_NON_PRIORITY_MODULES == false then
-						moduleData.AutoInitData.Init(moduleData.AutoInitData.RequiredData)
-					else
-						local success, initError = pcall(moduleData.AutoInitData.Init, moduleData.AutoInitData.RequiredData)
-						if not success then
-							warn("Module", moduleData.Path, "failed to :Init() because:\n", initError)
-						end
-					end
-					
-					print(3, moduleData.Path, "Took", string.format("%.4f", initTime), "seconds to :Init()")
-				end
-			end
-
-			statusConnection:Disconnect()
-			InitalizedModules = true
-			InitModulesPhaseInt = 3
-
-			self.ModulesInitalizedEvent:Fire()
-
-			print(2, "Initialization complete!")
 		end
+	end
 
-		-- Get Init data
-		for _,moduleData in ipairs(Modules) do
-			-- If module is static, skip it
-			if moduleData.Static == true then
-				tryFinalize()
+	-- Wait on the requires, including any modules pulled in by :AddModulesToInit()
+	while completed < pending or AddToInitProcessCount > 0 do
+		task.wait()
+	end
+
+	print(2, "Finished requiring modules, starting init...")
+	InitModulesPhaseInt = 2
+
+	-- Order the explicit first modules before general init
+	local initFirstArray = initFirst or {}
+	for index, moduleInstance in ipairs(initFirstArray) do
+		local moduleData = if typeof(moduleInstance) == "Instance" then ModuleFromInstance[moduleInstance] else nil
+
+		if moduleData then
+			moduleData.AutoInitData.First = true
+			moduleData.AutoInitData.Priority = (#initFirstArray - index) + 1
+		else
+			warn("Failed to prioritize module from initFirst table:", moduleInstance, "is not inside an Eden module directory.")
+		end
+	end
+
+	-- Sort Modules by priority
+	table.sort(Modules, function(a, b)
+		if a.AutoInitData.First == b.AutoInitData.First then
+			return a.AutoInitData.Priority > b.AutoInitData.Priority
+		else -- Force first modules are always first
+			return a.AutoInitData.First == true
+		end
+	end)
+
+	-- Timer for long init times
+	local focusedModuleData : ModuleData? = nil
+	local initStartTime = 0
+	local warnedLongInit = false
+	local statusConnection = RunService.Heartbeat:Connect(function()
+		local moduleData = focusedModuleData
+		if moduleData and warnedLongInit == false and tick() - initStartTime >= CONFIG.LONG_INIT_TIMEOUT then
+			warnedLongInit = true
+			warn("Module", moduleData.Path, "is taking a long time to complete :Init()")
+		end
+	end)
+
+	-- Auto initialize modules
+	local success, initError = xpcall(function()
+		for _, moduleData in ipairs(Modules) do
+			local init = moduleData.AutoInitData.Init
+			if not init then
 				continue
 			end
 
-			-- Require module
-			task.defer(function()
-				DoFirstRequire(moduleData)
+			focusedModuleData = moduleData
+			initStartTime = tick()
+			warnedLongInit = false
 
-				tryFinalize()
-			end)
+			if moduleData.AutoInitData.HasExplicitPriority == true or CONFIG.PCALL_NON_PRIORITY_MODULES == false then
+				init(moduleData.AutoInitData.RequiredData)
+			else
+				local initSuccess, thisError = pcall(init, moduleData.AutoInitData.RequiredData)
+				if not initSuccess then
+					warn("Module", moduleData.Path, "failed to :Init() because:\n", thisError)
+				end
+			end
+
+			print(3, moduleData.Path, "Took", string.format("%.4f", tick() - initStartTime), "seconds to :Init()")
 		end
-	else
-		error("You can only initalize modules once per context!")
+	end, function(thisError)
+		return debug.traceback(tostring(thisError), 2)
+	end)
+
+	statusConnection:Disconnect()
+
+	if not success then
+		warn("Module", focusedModuleData and focusedModuleData.Path or "?", "failed to :Init(). Error must be resolved or modules next in priority will not execute :Init()\n"..tostring(initError))
+		return
 	end
+
+	InitializedModules = true
+	InitModulesPhaseInt = 3
+
+	self.ModulesInitializedEvent:Fire()
+
+	print(2, "Initialization complete!")
 end
 
 --= Initializers =--
@@ -544,7 +418,7 @@ for _, pathData in ipairs(MODULE_PATHS) do
 	pathData.Instance.DescendantAdded:Connect(function(moduleInstance)
 		if moduleInstance:IsA("ModuleScript") then
 			local hasStaticParent = false
-			
+
 			do -- Check for static parent
 				local parent = moduleInstance.Parent
 				while parent ~= nil and parent ~= pathData.Instance do
@@ -558,7 +432,7 @@ for _, pathData in ipairs(MODULE_PATHS) do
 
 			local success = AddModule(pathData, moduleInstance, hasStaticParent)
 
-			if success and InitModulesPhaseInt > 0 or InitalizedModules == true then
+			if success and (InitModulesPhaseInt > 0 or InitializedModules == true) then
 				warn("Module", moduleInstance.Name, "replicated late to", pathData.Alias, "module folder. This may cause unexpected behavior.")
 			end
 		end
@@ -576,16 +450,17 @@ for _, pathData in ipairs(MODULE_PATHS) do
 	findModules(pathData.Instance, false)
 end
 
-print(2, "Aggregated "..(ModuleCount).." modules!")
+-- Add external packages
+for _, pathData in ipairs(PACKAGE_PATHS) do
+	pathData.Instance.ChildAdded:Connect(function(newChild)
+		AddModule(pathData, newChild, true)
+	end)
 
--- Bind call metatable
-local CallMetaTable = {
-	__call = function(_, ...)
-		return NewRequire(...)
+	for _, package in ipairs(pathData.Instance:GetChildren()) do
+		AddModule(pathData, package, true)
 	end
-}
+end
 
-setmetatable(shared, CallMetaTable)
-setmetatable(Eden, CallMetaTable)
+print(2, "Aggregated "..(ModuleCount).." modules!")
 
 return Eden

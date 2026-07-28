@@ -13,19 +13,18 @@
 
 --= Root =--
 local Example = {
-    -- All of the following paramers are optional.
+    -- All of the following parameters are optional.
     Priority = 0, -- The default priority is 0. The higher the priority, the earlier the module will be loaded. Negative priorities are allowed and will always be loaded last.
     Initialize = true, -- Determines if this modules :Init function will be called. If false, the module will not be initialized. Good for disabling modules.
 }
 
 --= Roblox Services =--
 local Players = game:GetService("Players")
+local ReplicatedStorage = game:GetService("ReplicatedStorage")
 
 --= Dependencies =--
-
--- If the module has a unique name you dont need to use the path and you can require by name "Example".
---"Shared/Example" is the path to the module. This is the same as the path in the file explorer.
-local OtherExampleModule = shared("Shared/Example")
+-- Modules are required normally, so you keep autocomplete and type checking.
+local OtherExampleModule = require(ReplicatedStorage.SharedModules.ExampleShared)
 
 
 --= Object References =--
