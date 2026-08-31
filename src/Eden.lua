@@ -350,10 +350,12 @@ function Eden:InitModules(initFirst : { Instance }?)
 
 	-- Sort Modules by priority
 	table.sort(Modules, function(a, b)
-		if a.AutoInitData.First == b.AutoInitData.First then
-			return a.AutoInitData.Priority > b.AutoInitData.Priority
-		else -- Force first modules are always first
+		if a.AutoInitData.First ~= b.AutoInitData.First then -- Force first modules are always first
 			return a.AutoInitData.First == true
+		elseif a.AutoInitData.Priority ~= b.AutoInitData.Priority then
+			return a.AutoInitData.Priority > b.AutoInitData.Priority
+		else -- Tie break alphabetically so init order is deterministic
+			return a.Path < b.Path
 		end
 	end)
 
